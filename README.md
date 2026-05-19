@@ -1,12 +1,15 @@
-# One-Forcing
+<p align="center">
+<h1 align="center">One-Forcing</h1>
+<h3 align="center">Towards Stable One-Step Autoregressive Video Generation</h3>
+</p>
+<p align="center">
+  <p align="center">
+    Jiaqi Feng* · Justin Cui* · Yuanhao Ban · Cho-Jui Hsieh
+  </p>
+  <h3 align="center"><a href="TODO">Paper</a> | <a href="https://aurora-edu.github.io/one-forcing/">Website</a> | <a href="https://huggingface.co/JiaqiFeng/OneForcing">Models/Data</a></h3>
+</p>
 
-### Towards Stable One-Step Autoregressive Video Generation
-
-Jiaqi Feng*, Justin Cui*, Yuanhao Ban, Cho-Jui Hsieh
-
-### [Paper](TODO) | [Website](https://aurora-edu.github.io/one-forcing/) | [Models (HuggingFace)](https://huggingface.co/JiaqiFeng/OneForcing)
-
-* * *
+---
 
 One-Forcing is a one-step causal video distillation method built on Causal
 Forcing and Wan2.1. It keeps the causal autoregressive generator and DMD
@@ -15,7 +18,7 @@ reusing the trainable fake-score network as both diffusion critic and
 discriminator. The reported framewise model reaches 83.58 VBench total score in
 the paper.
 
-* * *
+---
 
 ## Installation
 
