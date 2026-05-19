@@ -1,6 +1,12 @@
 # One-Forcing
 
-Towards stable one-step autoregressive video generation.
+### Towards Stable One-Step Autoregressive Video Generation
+
+Jiaqi Feng*, Justin Cui*, Yuanhao Ban, Cho-Jui Hsieh
+
+### [Paper](TODO) | [Website](https://aurora-edu.github.io/one-forcing/) | [Models (HuggingFace)](https://huggingface.co/JiaqiFeng/OneForcing)
+
+* * *
 
 One-Forcing is a one-step causal video distillation method built on Causal
 Forcing and Wan2.1. It keeps the causal autoregressive generator and DMD
@@ -9,7 +15,7 @@ reusing the trainable fake-score network as both diffusion critic and
 discriminator. The reported framewise model reaches 83.58 VBench total score in
 the paper.
 
-Links: [Paper](TODO) | [Project Page](https://aurora-edu.github.io/one-forcing) | [Models/Data](https://huggingface.co/JiaqiFeng/OneForcing)
+* * *
 
 ## Installation
 
@@ -38,9 +44,7 @@ bash scripts/infer.sh \
 
 ## Dataset Preparation
 
-Following [CausVID](https://github.com/tianweiy/CausVid).
-
-We use the [MixKit Dataset](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/all_mixkit) (6K videos) as a toy example for distillation.
+Following [CausVID](https://github.com/tianweiy/CausVid), we use the [MixKit Dataset](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/all_mixkit) (6K videos) as a toy example for distillation.
 
 To prepare the dataset, follow these steps. You can also download the final LMDB dataset from [here](https://huggingface.co/tianweiy/CausVid/tree/main/mixkit_latents_lmdb)
 
