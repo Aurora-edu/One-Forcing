@@ -1,0 +1,108 @@
+generator_ckpt: checkpoints/chunkwise/causal_ode.pt
+teacher_model_path: wan_models/Wan2.1-T2V-14B
+resume_ckpt: ""
+resume_ema_from_ckpt: false
+generator_fsdp_wrap_strategy: transformer
+generator_fsdp_transformer_modules:
+  - causal_wan_block
+generator_fsdp_min_num_params: 1000000
+generator_cpu_offload: false
+
+real_score_fsdp_wrap_strategy: transformer
+real_score_fsdp_transformer_modules:
+  - wan_block
+real_score_fsdp_min_num_params: 1000000
+real_score_cpu_offload: false
+
+fake_score_fsdp_wrap_strategy: transformer
+fake_score_fsdp_transformer_modules:
+  - wan_block
+  - gan_block
+fake_score_fsdp_min_num_params: 1000000
+fake_score_cpu_offload: false
+
+real_name: Wan2.1-T2V-14B
+fake_name: Wan2.1-T2V-1.3B
+text_encoder_fsdp_wrap_strategy: none
+text_encoder_cpu_offload: false
+
+denoising_step_list:
+  - 1000
+warp_denoising_step: true
+ts_schedule: false
+num_train_timestep: 1000
+timestep_shift: 5.0
+critic_timestep_shift: 5.0
+guidance_scale: 5.0
+denoising_loss_type: flow
+mixed_precision: true
+seed: 0
+
+wandb_host: ""
+wandb_key: ""
+wandb_entity: ""
+wandb_project: ""
+
+sharding_strategy: full
+lr: 1.0e-05
+lr_critic: 1.0e-05
+beta1: 0.0
+beta2: 0.999
+beta1_critic: 0.0
+beta2_critic: 0.999
+weight_decay: 0.01
+batch_size: 1
+ema_weight: 0.99
+ema_start_step: 50
+log_iters: 50
+max_steps: 1000
+
+negative_prompt: "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走"
+dfake_gen_update_ratio: 5
+
+image_or_video_shape:
+  - 1
+  - 21
+  - 16
+  - 60
+  - 104
+
+distribution_loss: one_forcing
+trainer: one_forcing
+gradient_checkpointing: true
+generator_activation_cpu_offload: true
+num_frame_per_block: 3
+num_training_frames: 21
+same_step_across_blocks: true
+last_step_only: false
+load_raw_video: false
+concat_time_embeddings: false
+relativistic_discriminator: false
+discriminator_feature_dim: 1536
+gan_num_class: 1
+gan_feature_layers:
+  - 29
+gan_num_registers: 1
+gan_block_ffn_dim: 512
+gan_block_num_heads: 12
+gan_g_weight: 0.03
+gan_d_weight: 0.03
+r1_weight: 1.0
+r1_sigma: 0.1
+r1_loss_type: apt
+r2_weight: 0.001
+r2_sigma: 0.01
+context_noise: 0
+dataloader_num_workers: 0
+lmdb_readahead: false
+
+data_path: dataset
+prompt_embedding_cache_path: ""
+
+independent_first_frame: false
+i2v: false
+gc_interval: 100
+causal: true
+
+model_kwargs:
+  timestep_shift: 5.0
