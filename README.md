@@ -4,7 +4,8 @@
 </p>
 <p align="center">
   <p align="center">
-    Jiaqi Feng* · Justin Cui* · Yuanhao Ban · Cho-Jui Hsieh
+    Jiaqi Feng<sup>1,*</sup> · Justin Cui<sup>2,*</sup> · Yuanhao Ban<sup>2</sup> · Cho-Jui Hsieh<sup>2</sup><br>
+    <sup>1</sup>Tsinghua University <sup>2</sup>UCLA <sup>*</sup>Equal contribution
   </p>
   <h3 align="center"><a href="TODO">Paper</a> | <a href="https://aurora-edu.github.io/one-forcing/">Website</a> | <a href="https://huggingface.co/JiaqiFeng/OneForcing">Models/Data</a></h3>
 </p>
