@@ -12,12 +12,9 @@
 
 ---
 
-One-Forcing is a one-step causal video distillation method built on Causal
-Forcing and Wan2.1. It keeps the causal autoregressive generator and DMD
-score-matching objective, and adds an adversarial noised-latent branch by
-reusing the trainable fake-score network as both diffusion critic and
-discriminator. The reported framewise model reaches 83.58 VBench total score in
-the paper.
+  One-Forcing enables stable one-step autoregressive video generation by augmenting DMD-based causal distillation with a
+  shared noised-latent adversarial critic, achieving state-of-the-art one-step VBench performance and efficient framewise
+  generation.
 
 ---
 
