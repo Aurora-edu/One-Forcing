@@ -121,5 +121,4 @@ python scripts/run_vbench.py \
 This codebase builds on
 [Causal Forcing](https://github.com/thu-ml/Causal-Forcing),
 [Self Forcing](https://github.com/guandeh17/Self-Forcing),
-[CausVid](https://github.com/tianweiy/CausVid), and the Wan2.1 model family.
-Release locations are left as TODO until the public release is ready.
+[CausVid](https://github.com/tianweiy/CausVid), and the [Wan](https://github.com/Wan-Video/Wan2.1) model family.
