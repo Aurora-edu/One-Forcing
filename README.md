@@ -12,8 +12,8 @@
 
 ---
 
-  One-Forcing enables stable one-step autoregressive video generation by augmenting DMD-based causal distillation with a
-  shared noised-latent adversarial critic, achieving state-of-the-art one-step VBench performance and efficient framewise
+  One-Forcing enables stable *one-step autoregressive video generation* by augmenting DMD-based causal distillation with a
+  shared noised-latent adversarial critic, achieving *state-of-the-art* 1-step VBench performance and efficient framewise
   generation.
 
 ---
