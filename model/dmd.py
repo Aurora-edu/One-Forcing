@@ -59,6 +59,27 @@ class DMD(SelfForcingModel):
             return square_error[gradient_mask].mean()
         return square_error.mean()
 
+    def _crop_score_window(self, image_or_video: torch.Tensor) -> torch.Tensor:
+        active_score_num_frames = getattr(self, "_active_score_num_frames", None)
+        score_num_frames = (
+            int(active_score_num_frames)
+            if active_score_num_frames is not None
+            else int(getattr(self.args, "score_num_frames", 0) or 0)
+        )
+        if score_num_frames <= 0 or image_or_video.shape[1] <= score_num_frames:
+            return image_or_video
+
+        score_window_position = getattr(
+            self,
+            "_active_score_window_position",
+            getattr(self.args, "score_window_position", "tail"),
+        )
+        if score_window_position == "first":
+            return image_or_video[:, :score_num_frames]
+        if score_window_position == "tail":
+            return image_or_video[:, -score_num_frames:]
+        raise ValueError(f"Unsupported score_window_position: {score_window_position}")
+
     def _compute_kl_grad(
         self,
         noisy_image_or_video: torch.Tensor,
@@ -227,6 +248,7 @@ class DMD(SelfForcingModel):
                 initial_latent=initial_latent,
             )
 
+        generated_image = self._crop_score_window(generated_image)
         batch_size, num_frames = generated_image.shape[:2]
         min_timestep = denoised_timestep_to if self.ts_schedule and denoised_timestep_to is not None else self.min_score_timestep
         max_timestep = denoised_timestep_from if self.ts_schedule_max and denoised_timestep_from is not None else self.num_train_timestep

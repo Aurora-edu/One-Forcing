@@ -16,6 +16,8 @@ class SelfForcingTrainingPipeline:
                  last_step_only: bool = False,
                  num_max_frames: int = 21,
                  context_noise: int = 0,
+                 gradient_num_frames: Optional[int] = None,
+                 gradient_window_position: str = "tail",
                  **kwargs):
         super().__init__()
         self.scheduler = scheduler
@@ -37,6 +39,8 @@ class SelfForcingTrainingPipeline:
         self.same_step_across_blocks = same_step_across_blocks
         self.last_step_only = last_step_only
         self.kv_cache_size = num_max_frames * self.frame_seq_length
+        self.gradient_num_frames = gradient_num_frames
+        self.gradient_window_position = gradient_window_position
 
     def generate_and_sync_list(self, num_blocks, num_denoising_steps, device):
         rank = dist.get_rank() if dist.is_initialized() else 0
@@ -131,6 +135,21 @@ class SelfForcingTrainingPipeline:
                     f"denoise_steps={denoise_steps} is outside [0, {num_denoising_steps})"
                 )
             exit_flags = [denoise_steps for _ in exit_flags]
+
+        gradient_num_frames = (
+            num_output_frames
+            if self.gradient_num_frames is None or self.gradient_num_frames <= 0
+            else min(self.gradient_num_frames, num_output_frames)
+        )
+        if self.gradient_window_position == "first":
+            start_gradient_frame_index = 0
+            end_gradient_frame_index = gradient_num_frames
+        elif self.gradient_window_position == "tail":
+            start_gradient_frame_index = max(0, num_output_frames - gradient_num_frames)
+            end_gradient_frame_index = num_output_frames
+        else:
+            raise ValueError(f"Unsupported gradient_window_position: {self.gradient_window_position}")
+
         # for block_index in range(num_blocks):
         for block_index, current_num_frames in enumerate(all_num_frames):
             
@@ -174,14 +193,29 @@ class SelfForcingTrainingPipeline:
                                     [batch_size * current_num_frames], device=noise.device, dtype=torch.long)
                             ).unflatten(0, denoised_pred.shape[:2])
                     else:
-                        _, denoised_pred = self.generator(
-                            noisy_image_or_video=noisy_input,
-                            conditional_dict=conditional_dict,
-                            timestep=timestep,
-                            kv_cache=self.kv_cache1,
-                            crossattn_cache=self.crossattn_cache,
-                            current_start=current_start_frame * self.frame_seq_length
+                        enable_grad = (
+                            current_start_frame < end_gradient_frame_index
+                            and current_start_frame + current_num_frames > start_gradient_frame_index
                         )
+                        if not enable_grad:
+                            with torch.no_grad():
+                                _, denoised_pred = self.generator(
+                                    noisy_image_or_video=noisy_input,
+                                    conditional_dict=conditional_dict,
+                                    timestep=timestep,
+                                    kv_cache=self.kv_cache1,
+                                    crossattn_cache=self.crossattn_cache,
+                                    current_start=current_start_frame * self.frame_seq_length
+                                )
+                        else:
+                            _, denoised_pred = self.generator(
+                                noisy_image_or_video=noisy_input,
+                                conditional_dict=conditional_dict,
+                                timestep=timestep,
+                                kv_cache=self.kv_cache1,
+                                crossattn_cache=self.crossattn_cache,
+                                current_start=current_start_frame * self.frame_seq_length
+                            )
                         break
                     
             # Step 3.2: record the model's output

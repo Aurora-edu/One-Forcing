@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from typing import Optional, Tuple
 
 import torch
@@ -92,20 +93,97 @@ class BaseModel(nn.Module):
             timestep = timestep.reshape(timestep.shape[0], -1)
         return timestep
 
+    def _resolve_gradient_num_frames(self, total_num_frames: int) -> int:
+        active_gradient_num_frames = getattr(self, "_active_gradient_num_frames", None)
+        if active_gradient_num_frames is not None:
+            return max(1, min(total_num_frames, int(active_gradient_num_frames)))
+
+        gradient_num_blocks = int(getattr(self.args, "gradient_num_blocks", 0) or 0)
+        gradient_num_frames = int(getattr(self.args, "gradient_num_frames", 0) or 0)
+        if gradient_num_blocks > 0:
+            gradient_num_frames = gradient_num_blocks * getattr(self, "num_frame_per_block", 1)
+
+        if gradient_num_frames <= 0:
+            return total_num_frames
+
+        if not getattr(self.args, "independent_first_frame", False):
+            block_size = max(1, getattr(self, "num_frame_per_block", 1))
+            gradient_num_frames = ((gradient_num_frames + block_size - 1) // block_size) * block_size
+
+        return max(1, min(total_num_frames, gradient_num_frames))
+
+    def _get_gradient_window_position(self) -> str:
+        return getattr(
+            self,
+            "_active_gradient_window_position",
+            getattr(self.args, "gradient_window_position", "tail"),
+        )
+
+    @contextmanager
+    def training_window(
+        self,
+        *,
+        gradient_window_position: Optional[str] = None,
+        gradient_num_frames: Optional[int] = None,
+        score_window_position: Optional[str] = None,
+        score_num_frames: Optional[int] = None,
+    ):
+        old_gradient_window_position = getattr(self, "_active_gradient_window_position", None)
+        old_gradient_num_frames = getattr(self, "_active_gradient_num_frames", None)
+        old_score_window_position = getattr(self, "_active_score_window_position", None)
+        old_score_num_frames = getattr(self, "_active_score_num_frames", None)
+
+        if gradient_window_position is not None:
+            self._active_gradient_window_position = gradient_window_position
+        if gradient_num_frames is not None:
+            self._active_gradient_num_frames = int(gradient_num_frames)
+        if score_window_position is not None:
+            self._active_score_window_position = score_window_position
+        if score_num_frames is not None:
+            self._active_score_num_frames = int(score_num_frames)
+
+        try:
+            yield
+        finally:
+            self._restore_active_window_attr("_active_gradient_window_position", old_gradient_window_position)
+            self._restore_active_window_attr("_active_gradient_num_frames", old_gradient_num_frames)
+            self._restore_active_window_attr("_active_score_window_position", old_score_window_position)
+            self._restore_active_window_attr("_active_score_num_frames", old_score_num_frames)
+
+    def _restore_active_window_attr(self, name: str, value):
+        if value is None:
+            if hasattr(self, name):
+                delattr(self, name)
+        else:
+            setattr(self, name, value)
+
     def _build_gradient_mask(
         self,
         pred_image_or_video: torch.Tensor,
         num_generated_frames: int,
         min_num_frames: int,
     ) -> Optional[torch.Tensor]:
-        if num_generated_frames == min_num_frames:
-            return None
+        gradient_mask = None
 
-        gradient_mask = torch.ones_like(pred_image_or_video, dtype=torch.bool)
-        if self.args.independent_first_frame:
-            gradient_mask[:, :1] = False
-        else:
-            gradient_mask[:, :self.num_frame_per_block] = False
+        if num_generated_frames != min_num_frames:
+            gradient_mask = torch.ones_like(pred_image_or_video, dtype=torch.bool)
+            if self.args.independent_first_frame:
+                gradient_mask[:, :1] = False
+            else:
+                gradient_mask[:, :self.num_frame_per_block] = False
+
+        gradient_num_frames = self._resolve_gradient_num_frames(pred_image_or_video.shape[1])
+        if gradient_num_frames < pred_image_or_video.shape[1]:
+            if gradient_mask is None:
+                gradient_mask = torch.ones_like(pred_image_or_video, dtype=torch.bool)
+            window_position = self._get_gradient_window_position()
+            if window_position == "first":
+                gradient_mask[:, gradient_num_frames:] = False
+            elif window_position == "tail":
+                gradient_mask[:, :pred_image_or_video.shape[1] - gradient_num_frames] = False
+            else:
+                raise ValueError(f"Unsupported gradient_window_position: {window_position}")
+
         return gradient_mask
 
 
@@ -211,6 +289,8 @@ class SelfForcingModel(BaseModel):
     ):
         if self.inference_pipeline is None:
             self._initialize_inference_pipeline()
+        self.inference_pipeline.gradient_num_frames = self._resolve_gradient_num_frames(self.num_training_frames)
+        self.inference_pipeline.gradient_window_position = self._get_gradient_window_position()
 
         return self.inference_pipeline.inference_with_trajectory(
             noise=noise,
@@ -230,4 +310,6 @@ class SelfForcingModel(BaseModel):
             last_step_only=self.args.last_step_only,
             num_max_frames=self.num_training_frames,
             context_noise=self.args.context_noise,
+            gradient_num_frames=self._resolve_gradient_num_frames(self.num_training_frames),
+            gradient_window_position=self._get_gradient_window_position(),
         )

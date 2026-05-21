@@ -213,6 +213,9 @@ class OneForcing(DMD):
         denoised_timestep_from: int = 0,
         denoised_timestep_to: int = 0,
     ) -> Tuple[torch.Tensor, dict]:
+        fake_latent = self._crop_score_window(fake_latent)
+        real_latent = self._crop_score_window(real_latent)
+
         if self.gan_g_weight <= 0.0:
             zero = fake_latent.new_zeros(())
             return zero, {
@@ -277,6 +280,9 @@ class OneForcing(DMD):
         denoised_timestep_from: int = 0,
         denoised_timestep_to: int = 0,
     ) -> Tuple[torch.Tensor, dict]:
+        fake_latent = self._crop_score_window(fake_latent)
+        real_latent = self._crop_score_window(real_latent)
+
         if self.gan_d_weight <= 0.0 and self.r1_weight <= 0.0 and self.r2_weight <= 0.0:
             zero = fake_latent.new_zeros(())
             return zero, {
@@ -474,6 +480,7 @@ class OneForcing(DMD):
                 initial_latent=initial_latent,
             )
 
+        generated_image = self._crop_score_window(generated_image)
         batch_size, num_frames = generated_image.shape[:2]
         critic_timestep = self._sample_critic_timestep(
             batch_size=batch_size,
@@ -549,6 +556,7 @@ class OneForcing(DMD):
                 initial_latent=initial_latent,
             )
 
+        generated_image = self._crop_score_window(generated_image)
         real_latent = self._match_real_latent_to_reference(clean_latent, generated_image)
         gan_d_total_loss, gan_log_dict = self._compute_gan_discriminator_loss(
             fake_latent=generated_image,

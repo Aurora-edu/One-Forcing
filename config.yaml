@@ -73,6 +73,8 @@ gradient_checkpointing: true
 generator_activation_cpu_offload: true
 num_frame_per_block: 1
 num_training_frames: 21
+gradient_num_blocks: 17
+score_num_frames: 21
 same_step_across_blocks: true
 last_step_only: false
 load_raw_video: false
