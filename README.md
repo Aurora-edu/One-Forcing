@@ -43,11 +43,12 @@ bash scripts/infer.sh \
   --use_ema
 ```
 
-## Dataset Preparation
+## Training
+### Dataset Preparation
 
 Following [CausVID](https://github.com/tianweiy/CausVid), we use the [MixKit Dataset](https://huggingface.co/datasets/LanguageBind/Open-Sora-Plan-v1.1.0/tree/main/all_mixkit) (6K videos) as a toy example for distillation.
 
-To prepare the dataset, follow these steps. You can also download the final LMDB dataset from [here](https://huggingface.co/tianweiy/CausVid/tree/main/mixkit_latents_lmdb)
+To prepare the dataset, follow these steps. You can also download the final LMDB dataset from [here](https://huggingface.co/JiaqiFeng/OneForcing/tree/main/clean_data)
 
 ```bash
 # download and extract video from the Mixkit dataset 
@@ -63,7 +64,6 @@ torchrun --nproc_per_node 8 distillation_data/compute_vae_latent.py --input_vide
 python causvid/ode_data/create_lmdb_iterative.py   --data_path XXX  --lmdb_path XXX
 ```
 
-## Training
 ### Download ODE initialized checkpoint
 ```bash
 hf download JiaqiFeng/OneForcing checkpoints/framewise/causal_ode.pt --local-dir .
