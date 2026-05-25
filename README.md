@@ -7,7 +7,7 @@
     Jiaqi Feng<sup>1,*</sup> · Justin Cui<sup>2,*</sup> · Yuanhao Ban<sup>2</sup> · Cho-Jui Hsieh<sup>2</sup><br>
     <sup>1</sup>Tsinghua University <sup>2</sup>UCLA <sup>*</sup>Equal contribution
   </p>
-  <h3 align="center"><a href="TODO">Paper</a> | <a href="https://aurora-edu.github.io/one-forcing/">Website</a> | <a href="https://huggingface.co/JiaqiFeng/OneForcing">Models/Data</a></h3>
+  <h3 align="center"><a href="https://arxiv.org/pdf/2605.23458">Paper</a> | <a href="https://aurora-edu.github.io/one-forcing/">Website</a> | <a href="https://huggingface.co/JiaqiFeng/OneForcing">Models/Data</a></h3>
 </p>
 
 ---
@@ -91,11 +91,15 @@ python scripts/run_vbench.py \
 ## Citation
 
 ```bibtex
-@article{oneforcing2026,
+@article{feng2026oneforcing,
   title={One-Forcing: Towards Stable One-Step Autoregressive Video Generation},
-  author={TODO},
-  journal={TODO},
-  year={2026}
+  author={Feng, Jiaqi and Cui, Justin and Ban, Yuanhao and Hsieh, Cho-Jui},
+  journal={arXiv preprint arXiv:2605.23458},
+  year={2026},
+  eprint={2605.23458},
+  archivePrefix={arXiv},
+  primaryClass={cs.CV},
+  url={https://arxiv.org/abs/2605.23458}
 }
 ```
 
