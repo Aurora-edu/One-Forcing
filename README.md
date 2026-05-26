@@ -39,8 +39,7 @@ hf download JiaqiFeng/OneForcing checkpoints/one_forcing.pt --local-dir .
 bash scripts/infer.sh \
   --checkpoint_path checkpoints/one_forcing.pt \
   --prompt_path prompts/demos.txt \
-  --output_folder outputs \
-  --use_ema
+  --output_folder outputs
 ```
 
 ## Training
