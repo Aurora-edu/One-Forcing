@@ -75,8 +75,8 @@ torchrun --nproc_per_node=8 train.py \
   --no_visualize
 ```
 
-### Self-Forcing Stage-2 with One-Forcing
-Use `self_forcing_config.yaml` to keep Self-Forcing's prompt rollout setup while replacing its DMD stage with the One-Forcing loss. Because the adversarial branch uses real clean latents, pass a clean-latent LMDB via `--real_data_path`.
+### FFE-Aligned Self-Rollout Training with One-Forcing
+Use `self_forcing_config.yaml` for prompt rollout with the FFE-aligned `first4then1` schedule: generate the first 4 latent frames with `first_frame_denoising_step_list`, then continue with 1-step framewise self-rollout. The objective is still One-Forcing. Because the adversarial branch uses real clean latents, pass a clean-latent LMDB via `--real_data_path`.
 
 ```bash
 torchrun --nproc_per_node=8 train.py \
@@ -86,7 +86,7 @@ torchrun --nproc_per_node=8 train.py \
   --data_path prompts/vidprom_filtered_extended.txt \
   --dataset_type text \
   --real_data_path mixkit_latents_lmdb \
-  --logdir runs_self_forcing \
+  --logdir runs_self_forcing_first4then1 \
   --disable-wandb \
   --no_visualize
 ```

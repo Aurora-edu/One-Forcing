@@ -24,6 +24,16 @@ class BaseModel(nn.Module):
             if args.warp_denoising_step:
                 timesteps = torch.cat((self.scheduler.timesteps.cpu(), torch.tensor([0], dtype=torch.float32))).to(self.device)
                 self.denoising_step_list = timesteps[1000 - self.denoising_step_list]
+        self.first_frame_denoising_step_list = None
+        if hasattr(args, "first_frame_denoising_step_list"):
+            self.first_frame_denoising_step_list = torch.tensor(
+                args.first_frame_denoising_step_list,
+                dtype=torch.long,
+                device=self.device,
+            )
+            if args.warp_denoising_step:
+                timesteps = torch.cat((self.scheduler.timesteps.cpu(), torch.tensor([0], dtype=torch.float32))).to(self.device)
+                self.first_frame_denoising_step_list = timesteps[1000 - self.first_frame_denoising_step_list]
 
     def _initialize_models(self, args, device):
         self.real_model_name = getattr(args, "real_name", "Wan2.1-T2V-1.3B")
@@ -244,7 +254,8 @@ class SelfForcingModel(BaseModel):
         max_num_blocks = max_num_frames // self.num_frame_per_block
         min_num_blocks = min_num_frames // self.num_frame_per_block
         num_generated_blocks = torch.randint(min_num_blocks, max_num_blocks + 1, (1,), device=self.device)
-        dist.broadcast(num_generated_blocks, src=0)
+        if dist.is_initialized():
+            dist.broadcast(num_generated_blocks, src=0)
         num_generated_frames = num_generated_blocks.item() * self.num_frame_per_block
         if self.args.independent_first_frame and initial_latent is None:
             num_generated_frames += 1
@@ -302,6 +313,7 @@ class SelfForcingModel(BaseModel):
     def _initialize_inference_pipeline(self):
         self.inference_pipeline = SelfForcingTrainingPipeline(
             denoising_step_list=self.denoising_step_list,
+            first_frame_denoising_step_list=self.first_frame_denoising_step_list,
             scheduler=self.scheduler,
             generator=self.generator,
             num_frame_per_block=self.num_frame_per_block,
@@ -312,4 +324,6 @@ class SelfForcingModel(BaseModel):
             context_noise=self.args.context_noise,
             gradient_num_frames=self._resolve_gradient_num_frames(self.num_training_frames),
             gradient_window_position=self._get_gradient_window_position(),
+            rollout_schedule=getattr(self.args, "rollout_schedule", "fixed"),
+            first_rollout_num_frames=getattr(self.args, "first_rollout_num_frames", 4),
         )

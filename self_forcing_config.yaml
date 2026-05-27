@@ -28,6 +28,8 @@ text_encoder_cpu_offload: false
 
 denoising_step_list:
   - 1000
+first_frame_denoising_step_list:
+  - 1000
   - 750
   - 500
   - 250
@@ -74,8 +76,12 @@ distribution_loss: one_forcing
 trainer: one_forcing
 gradient_checkpointing: true
 generator_activation_cpu_offload: true
-num_frame_per_block: 3
+rollout_schedule: first4then1
+first_rollout_num_frames: 4
+num_frame_per_block: 1
 num_training_frames: 21
+gradient_num_frames: 17
+gradient_window_position: tail
 same_step_across_blocks: true
 last_step_only: false
 load_raw_video: false

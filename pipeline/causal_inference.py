@@ -43,11 +43,53 @@ class CausalInferencePipeline(torch.nn.Module):
         self.num_frame_per_block = getattr(args, "num_frame_per_block", 1)
         self.independent_first_frame = args.independent_first_frame
         self.local_attn_size = self.generator.model.local_attn_size
+        self.rollout_schedule = getattr(args, "rollout_schedule", "fixed").lower()
+        self.first_rollout_num_frames = int(getattr(args, "first_rollout_num_frames", 4))
+        if self.first_rollout_num_frames <= 0:
+            raise ValueError("first_rollout_num_frames must be positive")
 
-        print(f"KV inference with {self.num_frame_per_block} frames per block")
+        print(
+            f"KV inference with {self.num_frame_per_block} frames per block "
+            f"and rollout_schedule={self.rollout_schedule}"
+        )
 
         if self.num_frame_per_block > 1:
             self.generator.model.num_frame_per_block = self.num_frame_per_block
+
+    def _build_rollout_frame_counts(
+        self,
+        num_frames: int,
+        initial_latent: Optional[torch.Tensor],
+    ) -> List[int]:
+        if self.rollout_schedule == "fixed":
+            if not self.independent_first_frame or (
+                self.independent_first_frame and initial_latent is not None
+            ):
+                assert num_frames % self.num_frame_per_block == 0
+                return [self.num_frame_per_block] * (num_frames // self.num_frame_per_block)
+
+            assert (num_frames - 1) % self.num_frame_per_block == 0
+            return [1] + [self.num_frame_per_block] * ((num_frames - 1) // self.num_frame_per_block)
+
+        if self.rollout_schedule != "first4then1":
+            raise ValueError(f"Unsupported rollout_schedule: {self.rollout_schedule}")
+        if self.independent_first_frame:
+            raise NotImplementedError("first4then1 rollout does not support independent_first_frame")
+        if initial_latent is not None:
+            raise NotImplementedError("first4then1 rollout does not support initial_latent")
+        if self.first_frame_denoising_step_list is None:
+            raise ValueError("first4then1 rollout requires first_frame_denoising_step_list")
+        if num_frames < self.first_rollout_num_frames:
+            raise ValueError(
+                f"first4then1 rollout needs at least {self.first_rollout_num_frames} frames, "
+                f"got {num_frames}"
+            )
+        return [self.first_rollout_num_frames] + [1] * (num_frames - self.first_rollout_num_frames)
+
+    def _block_denoising_step_list(self, block_index: int):
+        if block_index == 0 and self.first_frame_denoising_step_list is not None:
+            return self.first_frame_denoising_step_list
+        return self.denoising_step_list
 
     def inference(
         self,
@@ -75,17 +117,7 @@ class CausalInferencePipeline(torch.nn.Module):
                 It is normalized to be in the range [0, 1].
         """
         batch_size, num_frames, num_channels, height, width = noise.shape
-        if not self.independent_first_frame or (self.independent_first_frame and initial_latent is not None):
-            # If the first frame is independent and the first frame is provided, then the number of frames in the
-            # noise should still be a multiple of num_frame_per_block
-            # default here
-            # self.independent_first_frame: False
-            assert num_frames % self.num_frame_per_block == 0
-            num_blocks = num_frames // self.num_frame_per_block
-        else:
-            # Using a [1, 4, 4, 4, 4, 4, ...] model to generate a video without image conditioning
-            assert (num_frames - 1) % self.num_frame_per_block == 0
-            num_blocks = (num_frames - 1) // self.num_frame_per_block
+        all_num_frames = self._build_rollout_frame_counts(num_frames, initial_latent)
         num_input_frames = initial_latent.shape[1] if initial_latent is not None else 0
         num_output_frames = num_frames + num_input_frames  # add the initial latent frames
         conditional_dict = self.text_encoder(
@@ -177,20 +209,13 @@ class CausalInferencePipeline(torch.nn.Module):
             diffusion_start.record()
 
         # Step 3: Temporal denoising loop
-        all_num_frames = [self.num_frame_per_block] * num_blocks
-        if self.independent_first_frame and initial_latent is None:
-            all_num_frames = [1] + all_num_frames
-        for current_num_frames in tqdm.tqdm(all_num_frames):
+        for block_index, current_num_frames in enumerate(tqdm.tqdm(all_num_frames)):
             if profile:
                 block_start.record()
 
             noisy_input = noise[
                 :, current_start_frame - num_input_frames:current_start_frame + current_num_frames - num_input_frames]
-            denoising_step_list = (
-                self.first_frame_denoising_step_list
-                if current_start_frame == 0 and self.first_frame_denoising_step_list is not None
-                else self.denoising_step_list
-            )
+            denoising_step_list = self._block_denoising_step_list(block_index)
 
             # Step 3.1: Spatial denoising loop
             for index, current_timestep in enumerate(denoising_step_list):
