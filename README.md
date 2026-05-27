@@ -69,24 +69,22 @@ torchrun --nproc_per_node=8 train.py \
   --config_path config.yaml \
   --generator_ckpt checkpoints/framewise/causal_ode.pt \
   --teacher_model_path wan_models/Wan2.1-T2V-14B \
-  --data_path mixkit_latents_lmdb \
+  --data_path clean_data \
   --logdir runs \
   --disable-wandb \
   --no_visualize
 ```
 
-### FFE-Aligned Self-Rollout Training with One-Forcing
-Use `self_forcing_config.yaml` for prompt rollout with the FFE-aligned `first4then1` schedule: generate the first 4 latent frames with `first_frame_denoising_step_list`, then continue with 1-step framewise self-rollout. The objective is still One-Forcing. Because the adversarial branch uses real clean latents, pass a clean-latent LMDB via `--real_data_path`.
+### FFE-Aligned One Forcing Training
+Use `ffe_config.yaml` for Stage-3 One-Forcing training initialized from the framewise Causal-Forcing ODE checkpoint, while matching FFE inference: generate the first 4 latent frames with `first_frame_denoising_step_list`, then continue with 1-step framewise self-rollout.
 
 ```bash
 torchrun --nproc_per_node=8 train.py \
-  --config_path self_forcing_config.yaml \
-  --generator_ckpt checkpoints/ode_init.pt \
+  --config_path ffe_config.yaml \
+  --generator_ckpt checkpoints/framewise/causal_ode.pt \
   --teacher_model_path wan_models/Wan2.1-T2V-14B \
-  --data_path prompts/vidprom_filtered_extended.txt \
-  --dataset_type text \
-  --real_data_path mixkit_latents_lmdb \
-  --logdir runs_self_forcing_first4then1 \
+  --data_path clean_data \
+  --logdir runs_ffe \
   --disable-wandb \
   --no_visualize
 ```
