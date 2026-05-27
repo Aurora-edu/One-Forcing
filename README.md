@@ -69,7 +69,7 @@ torchrun --nproc_per_node=8 train.py \
   --config_path config.yaml \
   --generator_ckpt checkpoints/framewise/causal_ode.pt \
   --teacher_model_path wan_models/Wan2.1-T2V-14B \
-  --data_path mixkit_latents_lmdb \
+  --data_path clean_data \
   --logdir runs \
   --disable-wandb \
   --no_visualize
