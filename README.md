@@ -84,7 +84,7 @@ python scripts/run_vbench.py \
   --videos_path outputs \
   --full_info_path VBench_full_info.json \
   --output_dir eval/vbench \
-  --name one_forcing_framewise
+  --name one_forcing
 ```
 
 ## Citation
