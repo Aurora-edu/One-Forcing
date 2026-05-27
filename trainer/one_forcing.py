@@ -9,7 +9,7 @@ import wandb
 from omegaconf import OmegaConf
 
 from model import OneForcing
-from utils.dataset import CleanLatentLMDBDataset, cycle
+from utils.dataset import CleanLatentLMDBDataset, TextDataset, cycle
 from utils.distributed import (
     EMA_FSDP,
     fsdp_state_dict,
@@ -51,6 +51,17 @@ def _build_optimizer(optimizer_type, params, lr, betas, weight_decay):
             weight_decay=weight_decay,
         )
     raise ValueError(f"Unsupported optimizer_type: {optimizer_type}")
+
+
+def _infer_dataset_type(data_path: str) -> str:
+    if os.path.isdir(data_path) and os.path.exists(os.path.join(data_path, "data.mdb")):
+        return "clean_latent_lmdb"
+    if os.path.isfile(data_path):
+        return "text"
+    raise FileNotFoundError(
+        f"Could not infer dataset_type for {data_path}. "
+        "Use dataset_type=text for prompt files or dataset_type=clean_latent_lmdb for LMDB latents."
+    )
 
 
 class Trainer:
@@ -214,25 +225,38 @@ class Trainer:
             weight_decay=config.weight_decay,
         )
 
-        dataset = CleanLatentLMDBDataset(
-            config.data_path,
+        dataset, self.dataset_type = self._build_dataset(
+            data_path=config.data_path,
+            dataset_type=getattr(config, "dataset_type", "auto"),
+            requires_clean_latent=False,
+            prompt_extended_path=getattr(config, "extended_prompt_path", None),
             max_pair=int(getattr(config, "max_pair", 1e8)),
             readahead=bool(getattr(config, "lmdb_readahead", False)),
         )
-        sampler = torch.utils.data.distributed.DistributedSampler(
-            dataset,
-            shuffle=True,
-            drop_last=True,
-        )
-        dataloader = torch.utils.data.DataLoader(
-            dataset,
-            batch_size=config.batch_size,
-            sampler=sampler,
-            num_workers=getattr(config, "dataloader_num_workers", 8),
-        )
-        self.dataloader = cycle(dataloader)
+        self.dataloader = self._build_dataloader(dataset)
+        self.real_dataloader = None
+        self.real_dataset_type = self.dataset_type
+        if self.dataset_type == "text" and self._requires_real_latents():
+            real_data_path = getattr(config, "real_data_path", "")
+            if not real_data_path:
+                raise ValueError(
+                    "Self-forcing prompt training with One-Forcing GAN enabled requires real_data_path. "
+                    "Set real_data_path to a clean-latent LMDB, or set gan_g_weight/gan_d_weight/"
+                    "r1_weight/r2_weight to 0 for DMD-only training."
+                )
+            real_dataset, self.real_dataset_type = self._build_dataset(
+                data_path=real_data_path,
+                dataset_type=getattr(config, "real_dataset_type", "clean_latent_lmdb"),
+                requires_clean_latent=True,
+                prompt_extended_path=None,
+                max_pair=int(getattr(config, "real_max_pair", getattr(config, "max_pair", 1e8))),
+                readahead=bool(getattr(config, "real_lmdb_readahead", getattr(config, "lmdb_readahead", False))),
+            )
+            self.real_dataloader = self._build_dataloader(real_dataset)
         if self.is_main_process:
-            print(f"DATASET SIZE {len(dataset)}")
+            print(f"DATASET TYPE {self.dataset_type} SIZE {len(dataset)}")
+            if self.real_dataloader is not None:
+                print(f"REAL DATASET TYPE {self.real_dataset_type} SIZE {len(real_dataset)}")
 
         ema_weight = getattr(config, "ema_weight", 0.0)
         self.generator_ema = None
@@ -255,6 +279,85 @@ class Trainer:
         self.max_grad_norm_generator = getattr(config, "max_grad_norm_generator", 10.0)
         self.max_grad_norm_critic = getattr(config, "max_grad_norm_critic", 10.0)
         self.previous_time = None
+
+    def _build_dataset(
+        self,
+        *,
+        data_path: str,
+        dataset_type: str,
+        requires_clean_latent: bool,
+        prompt_extended_path: str = None,
+        max_pair: int,
+        readahead: bool,
+    ):
+        dataset_type = (dataset_type or "auto").lower()
+        if dataset_type == "auto":
+            dataset_type = _infer_dataset_type(data_path)
+
+        if dataset_type in {"text", "prompt", "prompts"}:
+            if requires_clean_latent:
+                raise ValueError("A text prompt dataset cannot provide clean latents")
+            return TextDataset(data_path, extended_prompt_path=prompt_extended_path), "text"
+
+        if dataset_type in {"clean_latent_lmdb", "latent_lmdb", "lmdb"}:
+            return (
+                CleanLatentLMDBDataset(
+                    data_path,
+                    max_pair=max_pair,
+                    readahead=readahead,
+                ),
+                "clean_latent_lmdb",
+            )
+
+        raise ValueError(
+            f"Unsupported dataset_type={dataset_type}. "
+            "Expected auto, text, or clean_latent_lmdb."
+        )
+
+    def _build_dataloader(self, dataset):
+        sampler = torch.utils.data.distributed.DistributedSampler(
+            dataset,
+            shuffle=True,
+            drop_last=True,
+        )
+        dataloader = torch.utils.data.DataLoader(
+            dataset,
+            batch_size=self.config.batch_size,
+            sampler=sampler,
+            num_workers=getattr(self.config, "dataloader_num_workers", 8),
+        )
+        return cycle(dataloader)
+
+    def _requires_real_latents(self) -> bool:
+        return self.model.use_gan_branch
+
+    def _step_needs_real_batch(self, *, train_generator: bool, train_discriminator: bool) -> bool:
+        if train_generator:
+            return self.model.relativistic_discriminator and self.model.gan_g_weight > 0.0
+        if train_discriminator:
+            return (
+                self.model.gan_d_weight > 0.0
+                or self.model.r1_weight > 0.0
+                or self.model.r2_weight > 0.0
+            )
+        return (
+            not self.separate_gan_discriminator_optimizer
+            and (
+                self.model.gan_d_weight > 0.0
+                or self.model.r1_weight > 0.0
+                or self.model.r2_weight > 0.0
+            )
+        )
+
+    def _next_real_batch_if_needed(self, *, train_generator: bool, train_discriminator: bool):
+        if self.real_dataloader is None:
+            return None
+        if not self._step_needs_real_batch(
+            train_generator=train_generator,
+            train_discriminator=train_discriminator,
+        ):
+            return None
+        return next(self.real_dataloader)
 
     @staticmethod
     def _is_gan_discriminator_param(name: str) -> bool:
@@ -467,18 +570,33 @@ class Trainer:
         batch,
         train_generator,
         train_discriminator: bool = False,
+        real_batch=None,
     ):
         self.model.eval()
         if self.step % 20 == 0:
             torch.cuda.empty_cache()
 
         text_prompts = batch["prompts"]
-        clean_latent = batch["clean_latent"].to(device=self.device, dtype=self.dtype)
-        image_latent = clean_latent[:, 0:1] if self.config.i2v else None
+        clean_latent = batch.get("clean_latent")
+        if clean_latent is not None:
+            clean_latent = clean_latent.to(device=self.device, dtype=self.dtype)
+        image_latent = None
+        if self.config.i2v:
+            if "ode_latent" in batch:
+                image_latent = batch["ode_latent"][:, -1][:, 0:1].to(device=self.device, dtype=self.dtype)
+            elif clean_latent is not None:
+                image_latent = clean_latent[:, 0:1]
+            else:
+                raise ValueError("i2v training requires ode_latent or clean_latent in the main batch")
 
         image_or_video_shape = list(self.config.image_or_video_shape)
         image_or_video_shape[0] = len(text_prompts)
         conditional_dict, unconditional_dict = self._get_conditioning(text_prompts)
+        real_latent = clean_latent
+        real_conditional_dict = conditional_dict if clean_latent is not None else None
+        if real_batch is not None:
+            real_latent = real_batch["clean_latent"].to(device=self.device, dtype=self.dtype)
+            real_conditional_dict, _ = self._get_conditioning(real_batch["prompts"])
 
         if train_generator:
             if hasattr(self.model, "set_discriminator_requires_grad"):
@@ -491,16 +609,18 @@ class Trainer:
                             image_or_video_shape=image_or_video_shape,
                             conditional_dict=conditional_dict,
                             unconditional_dict=unconditional_dict,
-                            clean_latent=clean_latent,
+                            clean_latent=real_latent,
                             initial_latent=image_latent,
+                            real_conditional_dict=real_conditional_dict,
                         )
                 else:
                     generator_log_dict = self.model.generator_loss_and_backward(
                         image_or_video_shape=image_or_video_shape,
                         conditional_dict=conditional_dict,
                         unconditional_dict=unconditional_dict,
-                        clean_latent=clean_latent,
+                        clean_latent=real_latent,
                         initial_latent=image_latent,
+                        real_conditional_dict=real_conditional_dict,
                     )
             elif getattr(self.config, "generator_activation_cpu_offload", False):
                 with torch.autograd.graph.save_on_cpu(pin_memory=False):
@@ -508,16 +628,18 @@ class Trainer:
                         image_or_video_shape=image_or_video_shape,
                         conditional_dict=conditional_dict,
                         unconditional_dict=unconditional_dict,
-                        clean_latent=clean_latent,
+                        clean_latent=real_latent,
                         initial_latent=image_latent,
+                        real_conditional_dict=real_conditional_dict,
                     )
             else:
                 generator_loss, generator_log_dict = self.model.generator_loss(
                     image_or_video_shape=image_or_video_shape,
                     conditional_dict=conditional_dict,
                     unconditional_dict=unconditional_dict,
-                    clean_latent=clean_latent,
+                    clean_latent=real_latent,
                     initial_latent=image_latent,
+                    real_conditional_dict=real_conditional_dict,
                 )
             if not manual_generator_backward:
                 torch.cuda.empty_cache()
@@ -534,8 +656,9 @@ class Trainer:
                 image_or_video_shape=image_or_video_shape,
                 conditional_dict=conditional_dict,
                 unconditional_dict=unconditional_dict,
-                clean_latent=clean_latent,
+                clean_latent=real_latent,
                 initial_latent=image_latent,
+                real_conditional_dict=real_conditional_dict,
             )
             torch.cuda.empty_cache()
             discriminator_loss.backward()
@@ -552,8 +675,9 @@ class Trainer:
             image_or_video_shape=image_or_video_shape,
             conditional_dict=conditional_dict,
             unconditional_dict=unconditional_dict,
-            clean_latent=clean_latent,
+            clean_latent=real_latent,
             initial_latent=image_latent,
+            real_conditional_dict=real_conditional_dict,
             include_gan_loss=not self.separate_gan_discriminator_optimizer,
         )
         torch.cuda.empty_cache()
@@ -649,7 +773,15 @@ class Trainer:
                 if self.discriminator_optimizer is not None:
                     self.discriminator_optimizer.zero_grad(set_to_none=True)
                 batch = next(self.dataloader)
-                generator_log_dict = self.fwdbwd_one_step(batch, train_generator=True)
+                real_batch = self._next_real_batch_if_needed(
+                    train_generator=True,
+                    train_discriminator=False,
+                )
+                generator_log_dict = self.fwdbwd_one_step(
+                    batch,
+                    train_generator=True,
+                    real_batch=real_batch,
+                )
                 self.generator_optimizer.step()
                 if self.generator_ema is not None:
                     self.generator_ema.update(self.model.generator)
@@ -663,10 +795,15 @@ class Trainer:
                     self._set_fake_score_param_groups(discriminator=True, critic=False)
                     self.discriminator_optimizer.zero_grad(set_to_none=True)
                     batch = next(self.dataloader)
+                    real_batch = self._next_real_batch_if_needed(
+                        train_generator=False,
+                        train_discriminator=True,
+                    )
                     critic_log_dict = self.fwdbwd_one_step(
                         batch,
                         train_generator=False,
                         train_discriminator=True,
+                        real_batch=real_batch,
                     )
                     self.discriminator_optimizer.step()
                     self.discriminator_optimizer.zero_grad(set_to_none=True)
@@ -677,14 +814,30 @@ class Trainer:
                     self._set_fake_score_param_groups(discriminator=False, critic=True)
                     self.critic_optimizer.zero_grad(set_to_none=True)
                     batch = next(self.dataloader)
-                    critic_log_dict = self.fwdbwd_one_step(batch, train_generator=False)
+                    real_batch = self._next_real_batch_if_needed(
+                        train_generator=False,
+                        train_discriminator=False,
+                    )
+                    critic_log_dict = self.fwdbwd_one_step(
+                        batch,
+                        train_generator=False,
+                        real_batch=real_batch,
+                    )
                     self.critic_optimizer.step()
                     self.critic_optimizer.zero_grad(set_to_none=True)
                     torch.cuda.empty_cache()
             else:
                 self.critic_optimizer.zero_grad(set_to_none=True)
                 batch = next(self.dataloader)
-                critic_log_dict = self.fwdbwd_one_step(batch, train_generator=False)
+                real_batch = self._next_real_batch_if_needed(
+                    train_generator=False,
+                    train_discriminator=False,
+                )
+                critic_log_dict = self.fwdbwd_one_step(
+                    batch,
+                    train_generator=False,
+                    real_batch=real_batch,
+                )
                 self.critic_optimizer.step()
                 self.critic_optimizer.zero_grad(set_to_none=True)
                 torch.cuda.empty_cache()

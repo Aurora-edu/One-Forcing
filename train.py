@@ -18,6 +18,10 @@ def main():
     parser.add_argument("--generator_ckpt", type=str, default="", help="Override generator checkpoint in config")
     parser.add_argument("--teacher_model_path", type=str, default="", help="Override teacher model path in config")
     parser.add_argument("--data_path", type=str, default="", help="Override data path in config")
+    parser.add_argument("--dataset_type", type=str, default="", help="Override dataset type in config")
+    parser.add_argument("--extended_prompt_path", type=str, default="", help="Override extended prompt path in config")
+    parser.add_argument("--real_data_path", type=str, default="", help="Override real latent data path in config")
+    parser.add_argument("--real_dataset_type", type=str, default="", help="Override real dataset type in config")
 
     args = parser.parse_args()
 
@@ -40,6 +44,14 @@ def main():
         config.teacher_model_path = args.teacher_model_path
     if args.data_path:
         config.data_path = args.data_path
+    if args.dataset_type:
+        config.dataset_type = args.dataset_type
+    if args.extended_prompt_path:
+        config.extended_prompt_path = args.extended_prompt_path
+    if args.real_data_path:
+        config.real_data_path = args.real_data_path
+    if args.real_dataset_type:
+        config.real_dataset_type = args.real_dataset_type
 
     if config.trainer == "one_forcing":
         trainer = OneForcingTrainer(config)

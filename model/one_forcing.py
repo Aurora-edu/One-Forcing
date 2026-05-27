@@ -1,7 +1,6 @@
-import copy
 import math
 from contextlib import nullcontext
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 import torch.nn.functional as F
@@ -189,9 +188,14 @@ class OneForcing(DMD):
 
     def _match_real_latent_to_reference(
         self,
-        clean_latent: torch.Tensor,
+        clean_latent: Optional[torch.Tensor],
         reference_latent: torch.Tensor,
     ) -> torch.Tensor:
+        if clean_latent is None:
+            raise ValueError(
+                "One-Forcing GAN loss requires real clean latents. "
+                "Use a clean-latent batch or configure real_data_path for self-forcing prompt training."
+            )
         real_latent = clean_latent.to(
             device=reference_latent.device,
             dtype=reference_latent.dtype,
@@ -205,16 +209,39 @@ class OneForcing(DMD):
             )
         return real_latent.detach()
 
+    @staticmethod
+    def _concat_conditioning(fake_conditional_dict: dict, real_conditional_dict: Optional[dict]) -> dict:
+        if real_conditional_dict is None:
+            real_conditional_dict = fake_conditional_dict
+        if fake_conditional_dict.keys() != real_conditional_dict.keys():
+            raise ValueError(
+                "Fake and real conditional dictionaries must contain the same keys for GAN training"
+            )
+
+        conditional_dict_gan = {}
+        for key, fake_value in fake_conditional_dict.items():
+            real_value = real_conditional_dict[key]
+            if not torch.is_tensor(fake_value) or not torch.is_tensor(real_value):
+                raise TypeError(f"GAN conditioning key '{key}' must be a tensor")
+            conditional_dict_gan[key] = torch.cat(
+                (
+                    fake_value,
+                    real_value.to(device=fake_value.device, dtype=fake_value.dtype),
+                ),
+                dim=0,
+            )
+        return conditional_dict_gan
+
     def _compute_gan_generator_loss(
         self,
         fake_latent: torch.Tensor,
-        real_latent: torch.Tensor,
+        real_latent: Optional[torch.Tensor],
         conditional_dict: dict,
+        real_conditional_dict: Optional[dict] = None,
         denoised_timestep_from: int = 0,
         denoised_timestep_to: int = 0,
     ) -> Tuple[torch.Tensor, dict]:
         fake_latent = self._crop_score_window(fake_latent)
-        real_latent = self._crop_score_window(real_latent)
 
         if self.gan_g_weight <= 0.0:
             zero = fake_latent.new_zeros(())
@@ -248,11 +275,11 @@ class OneForcing(DMD):
             noisy_real_logit = torch.zeros_like(noisy_fake_logit)
             gan_g_loss = F.softplus(-noisy_fake_logit.float()).mean() * self.gan_g_weight
         else:
-            noisy_real_latent, _ = self._prepare_noisy_latent(real_latent, critic_timestep)
-            conditional_dict_gan = copy.deepcopy(conditional_dict)
-            conditional_dict_gan["prompt_embeds"] = torch.cat(
-                (conditional_dict_gan["prompt_embeds"], conditional_dict_gan["prompt_embeds"]), dim=0
+            real_latent = self._crop_score_window(
+                self._match_real_latent_to_reference(real_latent, fake_latent)
             )
+            noisy_real_latent, _ = self._prepare_noisy_latent(real_latent, critic_timestep)
+            conditional_dict_gan = self._concat_conditioning(conditional_dict, real_conditional_dict)
             noisy_latent = torch.cat((noisy_fake_latent, noisy_real_latent), dim=0)
             timestep = torch.cat((critic_timestep, critic_timestep), dim=0)
             with gan_activation_context:
@@ -277,11 +304,11 @@ class OneForcing(DMD):
         fake_latent: torch.Tensor,
         real_latent: torch.Tensor,
         conditional_dict: dict,
+        real_conditional_dict: Optional[dict] = None,
         denoised_timestep_from: int = 0,
         denoised_timestep_to: int = 0,
     ) -> Tuple[torch.Tensor, dict]:
         fake_latent = self._crop_score_window(fake_latent)
-        real_latent = self._crop_score_window(real_latent)
 
         if self.gan_d_weight <= 0.0 and self.r1_weight <= 0.0 and self.r2_weight <= 0.0:
             zero = fake_latent.new_zeros(())
@@ -294,6 +321,9 @@ class OneForcing(DMD):
                 "gan_real_logit": fake_latent.new_zeros((fake_latent.shape[0], 1)),
             }
 
+        real_latent = self._crop_score_window(
+            self._match_real_latent_to_reference(real_latent, fake_latent)
+        )
         batch_size, num_frames = fake_latent.shape[:2]
         critic_timestep = self._sample_critic_timestep(
             batch_size=batch_size,
@@ -306,10 +336,7 @@ class OneForcing(DMD):
         noisy_fake_latent, _ = self._prepare_noisy_latent(fake_latent, critic_timestep, noise=critic_noise)
         noisy_real_latent, _ = self._prepare_noisy_latent(real_latent, critic_timestep, noise=critic_noise)
 
-        conditional_dict_gan = copy.deepcopy(conditional_dict)
-        conditional_dict_gan["prompt_embeds"] = torch.cat(
-            (conditional_dict_gan["prompt_embeds"], conditional_dict_gan["prompt_embeds"]), dim=0
-        )
+        conditional_dict_gan = self._concat_conditioning(conditional_dict, real_conditional_dict)
         combined_latent = torch.cat((noisy_fake_latent, noisy_real_latent), dim=0)
         combined_timestep = torch.cat((critic_timestep, critic_timestep), dim=0)
         if self.gan_discriminator_type == "attention":
@@ -340,7 +367,7 @@ class OneForcing(DMD):
             noisy_real_latent_perturbed = noisy_real_latent + self.r1_sigma * torch.randn_like(noisy_real_latent)
             noisy_real_logit_perturbed = self._run_cls_pred_branch(
                 noisy_image_or_video=noisy_real_latent_perturbed,
-                conditional_dict=conditional_dict,
+                conditional_dict=real_conditional_dict or conditional_dict,
                 timestep=critic_timestep,
                 detach_features=True,
             )
@@ -382,6 +409,7 @@ class OneForcing(DMD):
         unconditional_dict: dict,
         clean_latent: torch.Tensor,
         initial_latent: torch.Tensor = None,
+        real_conditional_dict: Optional[dict] = None,
     ) -> Tuple[torch.Tensor, dict]:
         pred_image, gradient_mask, denoised_timestep_from, denoised_timestep_to = self._run_generator(
             image_or_video_shape=image_or_video_shape,
@@ -396,11 +424,11 @@ class OneForcing(DMD):
             denoised_timestep_from=denoised_timestep_from,
             denoised_timestep_to=denoised_timestep_to,
         )
-        real_latent = self._match_real_latent_to_reference(clean_latent, pred_image)
         gan_g_loss, gan_log_dict = self._compute_gan_generator_loss(
             fake_latent=pred_image,
-            real_latent=real_latent,
+            real_latent=clean_latent,
             conditional_dict=conditional_dict,
+            real_conditional_dict=real_conditional_dict,
             denoised_timestep_from=denoised_timestep_from,
             denoised_timestep_to=denoised_timestep_to,
         )
@@ -419,6 +447,7 @@ class OneForcing(DMD):
         unconditional_dict: dict,
         clean_latent: torch.Tensor,
         initial_latent: torch.Tensor = None,
+        real_conditional_dict: Optional[dict] = None,
     ) -> dict:
         pred_image, gradient_mask, denoised_timestep_from, denoised_timestep_to = self._run_generator(
             image_or_video_shape=image_or_video_shape,
@@ -434,11 +463,11 @@ class OneForcing(DMD):
             denoised_timestep_to=denoised_timestep_to,
             return_pred_grad=True,
         )
-        real_latent = self._match_real_latent_to_reference(clean_latent, pred_image)
         gan_g_loss, gan_log_dict = self._compute_gan_generator_loss(
             fake_latent=pred_image,
-            real_latent=real_latent,
+            real_latent=clean_latent,
             conditional_dict=conditional_dict,
+            real_conditional_dict=real_conditional_dict,
             denoised_timestep_from=denoised_timestep_from,
             denoised_timestep_to=denoised_timestep_to,
         )
@@ -471,6 +500,7 @@ class OneForcing(DMD):
         unconditional_dict: dict,
         clean_latent: torch.Tensor,
         initial_latent: torch.Tensor = None,
+        real_conditional_dict: Optional[dict] = None,
         include_gan_loss: bool = True,
     ) -> Tuple[torch.Tensor, dict]:
         with torch.no_grad():
@@ -521,11 +551,11 @@ class OneForcing(DMD):
             flow_pred=flow_pred,
         )
         if include_gan_loss:
-            real_latent = self._match_real_latent_to_reference(clean_latent, generated_image)
             gan_d_total_loss, gan_log_dict = self._compute_gan_discriminator_loss(
                 fake_latent=generated_image,
-                real_latent=real_latent,
+                real_latent=clean_latent,
                 conditional_dict=conditional_dict,
+                real_conditional_dict=real_conditional_dict,
                 denoised_timestep_from=denoised_timestep_from,
                 denoised_timestep_to=denoised_timestep_to,
             )
@@ -548,6 +578,7 @@ class OneForcing(DMD):
         unconditional_dict: dict,
         clean_latent: torch.Tensor,
         initial_latent: torch.Tensor = None,
+        real_conditional_dict: Optional[dict] = None,
     ) -> Tuple[torch.Tensor, dict]:
         with torch.no_grad():
             generated_image, _, denoised_timestep_from, denoised_timestep_to = self._run_generator(
@@ -557,11 +588,11 @@ class OneForcing(DMD):
             )
 
         generated_image = self._crop_score_window(generated_image)
-        real_latent = self._match_real_latent_to_reference(clean_latent, generated_image)
         gan_d_total_loss, gan_log_dict = self._compute_gan_discriminator_loss(
             fake_latent=generated_image,
-            real_latent=real_latent,
+            real_latent=clean_latent,
             conditional_dict=conditional_dict,
+            real_conditional_dict=real_conditional_dict,
             denoised_timestep_from=denoised_timestep_from,
             denoised_timestep_to=denoised_timestep_to,
         )

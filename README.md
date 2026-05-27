@@ -75,6 +75,22 @@ torchrun --nproc_per_node=8 train.py \
   --no_visualize
 ```
 
+### Self-Forcing Stage-2 with One-Forcing
+Use `self_forcing_config.yaml` to keep Self-Forcing's prompt rollout setup while replacing its DMD stage with the One-Forcing loss. Because the adversarial branch uses real clean latents, pass a clean-latent LMDB via `--real_data_path`.
+
+```bash
+torchrun --nproc_per_node=8 train.py \
+  --config_path self_forcing_config.yaml \
+  --generator_ckpt checkpoints/ode_init.pt \
+  --teacher_model_path wan_models/Wan2.1-T2V-14B \
+  --data_path prompts/vidprom_filtered_extended.txt \
+  --dataset_type text \
+  --real_data_path mixkit_latents_lmdb \
+  --logdir runs_self_forcing \
+  --disable-wandb \
+  --no_visualize
+```
+
 ## Evaluation
 
 Export videos first, then run VBench with your local VBench installation:
