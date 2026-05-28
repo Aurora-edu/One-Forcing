@@ -75,6 +75,22 @@ torchrun --nproc_per_node=8 train.py \
   --no_visualize
 ```
 
+### Self-Forcing Stage-2 One-Step One-Forcing
+Use `self_forcing_config.yaml` to keep Self-Forcing's Stage-2 prompt rollout setup while replacing its DMD objective with the One-Forcing loss. This config trains the generator with a one-step schedule, `denoising_step_list: [1000]`. Because the adversarial branch uses real clean latents, pass a clean-latent LMDB via `--real_data_path`.
+
+```bash
+torchrun --nproc_per_node=8 train.py \
+  --config_path self_forcing_config.yaml \
+  --generator_ckpt checkpoints/ode_init.pt \
+  --teacher_model_path wan_models/Wan2.1-T2V-14B \
+  --data_path prompts/vidprom_filtered_extended.txt \
+  --dataset_type text \
+  --real_data_path mixkit_latents_lmdb \
+  --logdir runs_self_forcing \
+  --disable-wandb \
+  --no_visualize
+```
+
 ### FFE-Aligned One Forcing Training
 Use `ffe_config.yaml` for Stage-3 One-Forcing training initialized from the framewise Causal-Forcing ODE checkpoint, while matching FFE inference: generate the first 4 latent frames with `first_frame_denoising_step_list`, then continue with 1-step framewise self-rollout.
 
