@@ -63,7 +63,7 @@ hf download Wan-AI/Wan2.1-T2V-14B \
   --local-dir wan_models/Wan2.1-T2V-14B
 ```
 
-### One Forcing Training
+### One Forcing Training(only need 200 steps to converge)
 ```bash
 torchrun --nproc_per_node=8 train.py \
   --config_path config.yaml \
