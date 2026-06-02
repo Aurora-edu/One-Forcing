@@ -80,8 +80,8 @@ Use `self_forcing_config.yaml` to keep Self-Forcing's Stage-2 prompt rollout set
 
 ```bash
 torchrun --nproc_per_node=8 train.py \
-  --config_path self_forcing_config.yaml \
-  --generator_ckpt checkpoints/ode_init.pt \
+  --config_path  self_forcing_config_framewise.yaml \
+  --generator_ckpt PATH_TO_YOUR_ODE_INIT \
   --teacher_model_path wan_models/Wan2.1-T2V-14B \
   --data_path prompts/vidprom_filtered_extended.txt \
   --dataset_type text \
