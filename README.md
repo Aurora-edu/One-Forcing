@@ -76,16 +76,15 @@ torchrun --nproc_per_node=8 train.py \
 ```
 
 ### Self-Forcing Stage-2 One-Step One-Forcing
-Use `self_forcing_config.yaml` to keep Self-Forcing's Stage-2 prompt rollout setup while replacing its DMD objective with the One-Forcing loss. This config trains the generator with a one-step schedule, `denoising_step_list: [1000]`. Because the adversarial branch uses real clean latents, pass a clean-latent LMDB via `--real_data_path`.
+Use `self_forcing_config.yaml` to keep Self-Forcing's Stage-2 rollout setup while replacing its DMD objective with the One-Forcing loss. This config trains the generator with a one-step schedule, `denoising_step_list: [1000]`. Following the causal-forcing-init data wiring, pass the MixKit clean-latent LMDB as the main `--data_path`; rollout prompts and GAN real latents then come from the same LMDB rows.
 
 ```bash
 torchrun --nproc_per_node=8 train.py \
   --config_path  self_forcing_config_framewise.yaml \
   --generator_ckpt PATH_TO_YOUR_ODE_INIT \
   --teacher_model_path wan_models/Wan2.1-T2V-14B \
-  --data_path prompts/vidprom_filtered_extended.txt \
-  --dataset_type text \
-  --real_data_path mixkit_latents_lmdb \
+  --data_path mixkit_latents_lmdb \
+  --dataset_type clean_latent_lmdb \
   --logdir runs_self_forcing \
   --disable-wandb \
   --no_visualize

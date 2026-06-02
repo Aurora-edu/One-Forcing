@@ -96,8 +96,8 @@ context_noise: 0
 dataloader_num_workers: 0
 lmdb_readahead: false
 
-data_path: prompts/vidprom_filtered_extended.txt
-dataset_type: text
+data_path: mixkit_latents_lmdb
+dataset_type: clean_latent_lmdb
 extended_prompt_path: ""
 real_data_path: ""
 real_dataset_type: clean_latent_lmdb
