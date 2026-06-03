@@ -10,13 +10,19 @@ venv/
 checkpoints/
 dataset/
 data/
+clean_data/
 mixkit_latents_lmdb/
+*_lmdb/
 outputs/
 runs/
+runs_*/
 logs/
 eval/
 wandb/
 wan_models/
+
+*.egg-info/
+*.mdb
 
 *.pt
 *.pth

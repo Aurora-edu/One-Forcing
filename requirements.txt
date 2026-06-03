@@ -2,8 +2,8 @@ torch>=2.4.0
 torchvision>=0.19.0
 opencv-python>=4.9.0.80
 diffusers==0.31.0
-transformers>=4.49.0
-tokenizers>=0.20.3
+transformers==4.49.0
+tokenizers>=0.20.3,<0.22
 accelerate>=1.1.1
 tqdm
 imageio
@@ -26,6 +26,7 @@ sentencepiece
 pydantic==2.10.6
 scikit-image
 huggingface_hub[cli]
+hf_transfer
 dominate
 onnx
 onnxruntime
