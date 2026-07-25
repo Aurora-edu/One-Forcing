@@ -1,0 +1,8 @@
+_base_: train_1step_one_forcing.yaml
+
+experiment_id: train_4step_one_forcing
+denoising_step_list:
+  - 1000
+  - 750
+  - 500
+  - 250

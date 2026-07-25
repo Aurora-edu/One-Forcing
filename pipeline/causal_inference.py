@@ -1,4 +1,5 @@
 from typing import List, Optional
+import time
 import torch
 
 from utils.wan_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWrapper
@@ -39,6 +40,7 @@ class CausalInferencePipeline(torch.nn.Module):
         self.frame_seq_length = 1560
 
         self.kv_cache1 = None
+        self.last_profile = None
         self.args = args
         self.num_frame_per_block = getattr(args, "num_frame_per_block", 1)
         self.independent_first_frame = args.independent_first_frame
@@ -120,18 +122,15 @@ class CausalInferencePipeline(torch.nn.Module):
         all_num_frames = self._build_rollout_frame_counts(num_frames, initial_latent)
         num_input_frames = initial_latent.shape[1] if initial_latent is not None else 0
         num_output_frames = num_frames + num_input_frames  # add the initial latent frames
+        if profile:
+            torch.cuda.synchronize()
+            prompt_start_time = time.perf_counter()
         conditional_dict = self.text_encoder(
             text_prompts=text_prompts
         )
-
-        output = torch.zeros(
-            [batch_size, num_output_frames, num_channels, height, width],
-            device=noise.device,
-            dtype=noise.dtype
-        )
-
-        # Set up profiling if requested
         if profile:
+            torch.cuda.synchronize()
+            prompt_encoding_time = (time.perf_counter() - prompt_start_time) * 1000.0
             init_start = torch.cuda.Event(enable_timing=True)
             init_end = torch.cuda.Event(enable_timing=True)
             diffusion_start = torch.cuda.Event(enable_timing=True)
@@ -139,9 +138,16 @@ class CausalInferencePipeline(torch.nn.Module):
             vae_start = torch.cuda.Event(enable_timing=True)
             vae_end = torch.cuda.Event(enable_timing=True)
             block_times = []
+            block_denoising_nfes = []
             block_start = torch.cuda.Event(enable_timing=True)
             block_end = torch.cuda.Event(enable_timing=True)
             init_start.record()
+
+        output = torch.zeros(
+            [batch_size, num_output_frames, num_channels, height, width],
+            device=noise.device,
+            dtype=noise.dtype
+        )
 
         # Step 1: Initialize KV cache to all zeros
         if self.kv_cache1 is None:
@@ -216,6 +222,8 @@ class CausalInferencePipeline(torch.nn.Module):
             noisy_input = noise[
                 :, current_start_frame - num_input_frames:current_start_frame + current_num_frames - num_input_frames]
             denoising_step_list = self._block_denoising_step_list(block_index)
+            if profile:
+                block_denoising_nfes.append(len(denoising_step_list))
 
             # Step 3.1: Spatial denoising loop
             for index, current_timestep in enumerate(denoising_step_list):
@@ -283,7 +291,8 @@ class CausalInferencePipeline(torch.nn.Module):
             torch.cuda.synchronize()
             diffusion_time = diffusion_start.elapsed_time(diffusion_end)
             init_time = init_start.elapsed_time(init_end)
-            vae_start.record()
+            if return_video:
+                vae_start.record()
         # Step 4: Decode the output if needed
         video = None
         if return_video:
@@ -292,12 +301,39 @@ class CausalInferencePipeline(torch.nn.Module):
 
         if profile:
             # End VAE timing and synchronize CUDA
-            vae_end.record()
-            torch.cuda.synchronize()
-            vae_time = vae_start.elapsed_time(vae_end)
-            total_time = init_time + diffusion_time + vae_time
+            if return_video:
+                vae_end.record()
+                torch.cuda.synchronize()
+                vae_time = vae_start.elapsed_time(vae_end)
+            else:
+                vae_time = 0.0
+            total_time = prompt_encoding_time + init_time + diffusion_time + vae_time
+            steady_block_times = block_times[1:]
+            self.last_profile = {
+                "prompt_encoding_ms": float(prompt_encoding_time),
+                "initialization_ms": float(init_time),
+                "diffusion_ms": float(diffusion_time),
+                "vae_ms": float(vae_time),
+                "total_ms": float(total_time),
+                "block_ms": [float(value) for value in block_times],
+                "block_frame_counts": [int(value) for value in all_num_frames],
+                "block_denoising_nfes": [int(value) for value in block_denoising_nfes],
+                "denoising_nfes": int(sum(block_denoising_nfes)),
+                "context_update_nfes": int(len(all_num_frames)),
+                "generator_calls": int(sum(block_denoising_nfes) + len(all_num_frames)),
+                "first_block_ms": float(block_times[0]) if block_times else 0.0,
+                "steady_block_mean_ms": (
+                    float(sum(steady_block_times) / len(steady_block_times))
+                    if steady_block_times
+                    else 0.0
+                ),
+                "latent_frames": int(num_output_frames),
+                "decoded_frames": int(1 + 4 * (num_output_frames - 1)),
+                "return_video": bool(return_video),
+            }
 
             print("Profiling results:")
+            print(f"  - Prompt encoding time: {prompt_encoding_time:.2f} ms ({100 * prompt_encoding_time / total_time:.2f}%)")
             print(f"  - Initialization/caching time: {init_time:.2f} ms ({100 * init_time / total_time:.2f}%)")
             print(f"  - Diffusion generation time: {diffusion_time:.2f} ms ({100 * diffusion_time / total_time:.2f}%)")
             for i, block_time in enumerate(block_times):

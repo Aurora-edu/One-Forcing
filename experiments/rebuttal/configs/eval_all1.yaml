@@ -1,0 +1,12 @@
+_base_: train_1step_one_forcing.yaml
+
+experiment_id: eval_all1
+denoising_step_list:
+  - 1000
+rollout_schedule: fixed
+num_frame_per_block: 1
+
+model_kwargs:
+  timestep_shift: 5.0
+  local_attn_size: 21
+  sink_size: 0

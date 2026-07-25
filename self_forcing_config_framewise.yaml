@@ -37,6 +37,7 @@ guidance_scale: 3.0
 denoising_loss_type: flow
 mixed_precision: true
 seed: 0
+randomize_seed: false
 
 wandb_host: ""
 wandb_key: ""

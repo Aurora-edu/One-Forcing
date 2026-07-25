@@ -32,7 +32,14 @@ class PromptEmbeddingLMDBCache:
         if payload is None:
             raise KeyError(f"Prompt embedding not found in cache: {prompt!r}")
 
-        tensor = torch.load(io.BytesIO(payload), map_location="cpu")
+        try:
+            tensor = torch.load(
+                io.BytesIO(payload),
+                map_location="cpu",
+                weights_only=True,
+            )
+        except TypeError:
+            tensor = torch.load(io.BytesIO(payload), map_location="cpu")
         if tensor.ndim != 2:
             raise ValueError(
                 f"Expected cached prompt embedding to have shape [seq, dim], got {tuple(tensor.shape)}"

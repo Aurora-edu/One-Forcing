@@ -23,6 +23,8 @@
 ```bash
 conda create -n one_forcing python=3.10 -y
 conda activate one_forcing
+pip install torch==2.5.1 torchvision==0.20.1 \
+  --index-url https://download.pytorch.org/whl/cu124
 pip install -r requirements.txt
 pip install flash-attn --no-build-isolation
 python setup.py develop
@@ -106,7 +108,16 @@ torchrun --nproc_per_node=8 train.py \
 
 ## Evaluation
 
-Export videos first, then run VBench with your local VBench installation:
+For the 48-hour NeurIPS review experiment plan (4-step generalization, GAN/FFE
+ablations, post-200-step stability, latency, diversity, and FVD), follow
+[experiments/rebuttal/README.md](experiments/rebuttal/README.md).
+Long-video evaluation is explicitly deferred from this run and is not reported
+as completed.
+
+Export the complete official prompt set with five samples per prompt, then run
+VBench from the separate environment documented in the rebuttal README. The
+wrapper fails on missing standard videos, mixed file suffixes, NaN, or empty
+results:
 
 ```bash
 python scripts/run_vbench.py \

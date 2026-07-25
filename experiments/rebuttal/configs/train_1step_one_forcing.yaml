@@ -1,0 +1,25 @@
+_base_: ../../../config.yaml
+
+experiment_id: train_1step_one_forcing
+data_path: clean_data
+dataset_type: clean_latent_lmdb
+extended_prompt_path: ""
+real_data_path: ""
+real_dataset_type: clean_latent_lmdb
+
+seed: 0
+randomize_seed: false
+rank0_preload_generator_ckpt: true
+max_steps: 600
+log_iters: 100
+
+denoising_step_list:
+  - 1000
+rollout_schedule: fixed
+num_frame_per_block: 1
+last_step_only: false
+
+gan_g_weight: 0.03
+gan_d_weight: 0.03
+r1_weight: 0.0
+r2_weight: 0.0

@@ -9,11 +9,12 @@ import torch
 import math
 import os
 from utils.dataset import LatentLMDBDataset
+from scripts.export_videos import load_generator_state
 
 def init_model(device):
-    model = WanDiffusionWrapper(is_causal=True).to(device).to(torch.float32)
+    model = WanDiffusionWrapper(is_causal=True).to(device).to(torch.float32).eval()
     model.model.num_frame_per_block = 1 # !!
-    encoder = WanTextEncoder().to(device).to(torch.float32)
+    encoder = WanTextEncoder().to(device).to(torch.float32).eval()
     
 
     scheduler = FlowMatchScheduler(shift=5.0, sigma_min=0.0, extra_one_step=True)
@@ -32,10 +33,12 @@ def init_model(device):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--local_rank", type=int, default=-1)
-    parser.add_argument("--output_folder", type=str)
-    parser.add_argument("--rawdata_path", type=str)
-    parser.add_argument("--generator_ckpt", type=str)
+    parser.add_argument("--output_folder", type=str, required=True)
+    parser.add_argument("--rawdata_path", type=str, required=True)
+    parser.add_argument("--generator_ckpt", type=str, required=True)
     parser.add_argument("--guidance_scale", type=float, default=6.0)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--use_ema", action="store_true")
 
 
     args = parser.parse_args()
@@ -50,20 +53,9 @@ def main():
     torch.backends.cudnn.allow_tf32 = True
 
     model, encoder, scheduler, unconditional_dict = init_model(device=device)
-    state_dict = torch.load(args.generator_ckpt, map_location="cpu")
-        
-    gen_sd = state_dict["generator"]
-    fixed = {}
-    for k, v in gen_sd.items():
-        if k.startswith("model._fsdp_wrapped_module."):
-            k = k.replace("model._fsdp_wrapped_module.", "", 1)
-        if k.startswith("model."):
-            k = k.replace("model.", "", 1)
-        fixed[k] = v
-    state_dict = fixed
-    model.model.load_state_dict(
-        state_dict, strict=True
-    )
+    state_dict = load_generator_state(args.generator_ckpt, use_ema=args.use_ema)
+    model.load_state_dict(state_dict, strict=True, assign=True)
+    del state_dict
 
 
 
@@ -71,6 +63,7 @@ def main():
 
     if global_rank == 0:
         os.makedirs(args.output_folder, exist_ok=True)
+    dist.barrier()
         
     total_steps = int(math.ceil(len(dataset) / dist.get_world_size()))
     for index in tqdm(
@@ -87,11 +80,17 @@ def main():
         
 
         conditional_dict = encoder(
-            text_prompts=prompt
+            text_prompts=[prompt]
         )
 
+        noise_seed = args.seed + prompt_index
+        generator = torch.Generator(device=torch.device("cuda", device))
+        generator.manual_seed(noise_seed)
         latents = torch.randn(
-            [1, 21, 16, 60, 104], dtype=torch.float32, device=device
+            [1, 21, 16, 60, 104],
+            dtype=torch.float32,
+            device=device,
+            generator=generator,
         )
         
         noisy_input = []
@@ -123,17 +122,32 @@ def main():
         noisy_input.append(clean_latent)
         
         noisy_inputs = torch.stack(noisy_input, dim=1)
-
-        noisy_inputs = noisy_inputs[:, [0, 12, 24, 36, -2, -1]]
+        selected_indices = [0, 12, 24, 36, len(noisy_input) - 2, len(noisy_input) - 1]
+        noisy_inputs = noisy_inputs[:, selected_indices]
 
         stored_data = noisy_inputs
+        selected_timesteps = [
+            float(scheduler.timesteps[index].item())
+            for index in (0, 12, 24, 36)
+        ]
+        selected_timesteps.extend([0.0, None])
 
         torch.save(
-            {prompt: stored_data.cpu().detach()},
+            {
+                "schema_version": 2,
+                "prompt": prompt,
+                "trajectory": stored_data.cpu().detach(),
+                "noise_seed": noise_seed,
+                "selected_timesteps": selected_timesteps,
+                "guidance_scale": args.guidance_scale,
+                "generator_ckpt": os.path.realpath(args.generator_ckpt),
+                "use_ema": args.use_ema,
+            },
             os.path.join(args.output_folder, f"{prompt_index:05d}.pt")
         )
 
     dist.barrier()
+    dist.destroy_process_group()
 
 
 if __name__ == "__main__":

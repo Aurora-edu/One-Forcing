@@ -1,0 +1,9 @@
+# Install this in a separate Python 3.10 environment. VBench 0.1.5 pins an
+# older Transformers release than One-Forcing training.
+torch==2.5.1
+torchvision==0.20.1
+numpy==1.24.4
+vbench==0.1.5
+timm==1.0.12
+transformers==4.33.2
+setuptools<81

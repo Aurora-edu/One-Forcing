@@ -1,0 +1,10 @@
+_base_: eval_all1.yaml
+
+experiment_id: eval_ffe
+rollout_schedule: first4then1
+first_rollout_num_frames: 4
+first_frame_denoising_step_list:
+  - 1000
+  - 750
+  - 500
+  - 250

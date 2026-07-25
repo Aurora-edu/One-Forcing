@@ -1,0 +1,8 @@
+_base_: eval_all1.yaml
+
+experiment_id: eval_all4
+denoising_step_list:
+  - 1000
+  - 750
+  - 500
+  - 250

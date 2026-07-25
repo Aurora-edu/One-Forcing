@@ -263,6 +263,11 @@ class TextImagePairDataset(Dataset):
 
 
 def cycle(dl):
+    epoch = 0
     while True:
+        sampler = getattr(dl, "sampler", None)
+        if sampler is not None and hasattr(sampler, "set_epoch"):
+            sampler.set_epoch(epoch)
         for data in dl:
             yield data
+        epoch += 1

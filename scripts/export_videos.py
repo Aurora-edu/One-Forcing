@@ -1,12 +1,14 @@
 import argparse
 import gc
+import hashlib
+import json
 import os
 import re
 import sys
+from pathlib import Path
 
 import torch
 from einops import rearrange
-from omegaconf import OmegaConf
 from torchvision.io import write_video
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -15,6 +17,7 @@ if REPO_ROOT not in sys.path:
 
 from pipeline import CausalInferencePipeline
 from utils.dataset import TextDataset
+from utils.config import load_config
 from utils.misc import set_seed
 from utils.prompt_embedding_cache import PromptEmbeddingLMDBCache
 
@@ -45,12 +48,31 @@ def load_generator_state(checkpoint_path: str, use_ema: bool):
         )
     except TypeError:
         state_dict = torch.load(checkpoint_path, map_location="cpu")
-    key = "generator_ema" if use_ema and "generator_ema" in state_dict else "generator"
-    generator_state = state_dict[key]
+    if use_ema:
+        if "generator_ema" not in state_dict:
+            raise KeyError(
+                f"--use_ema was requested but checkpoint has no generator_ema: {checkpoint_path}"
+            )
+        generator_state = state_dict["generator_ema"]
+    elif "generator" in state_dict:
+        generator_state = state_dict["generator"]
+    elif "model" in state_dict:
+        generator_state = state_dict["model"]
+    elif state_dict and all(torch.is_tensor(value) for value in state_dict.values()):
+        generator_state = state_dict
+    else:
+        raise KeyError(
+            f"Checkpoint has no generator/model state dictionary: {checkpoint_path}"
+        )
     fixed = {}
     for name, value in generator_state.items():
-        if name.startswith("model._fsdp_wrapped_module."):
-            name = name.replace("model._fsdp_wrapped_module.", "model.", 1)
+        if name.startswith("_fsdp_wrapped_module."):
+            name = name.removeprefix("_fsdp_wrapped_module.")
+        name = name.replace("._fsdp_wrapped_module.", ".")
+        if name in fixed:
+            raise KeyError(
+                f"Checkpoint keys collide after FSDP normalization: {name}"
+            )
         fixed[name] = value
     return fixed
 
@@ -99,6 +121,129 @@ def write_video_with_fallback(output_path: str, frames: torch.Tensor, fps: int):
         imageio.mimsave(output_path, frames.numpy(), fps=fps, macro_block_size=1)
 
 
+def validate_video(path: str, expected_frames: int, expected_fps: int) -> None:
+    import cv2
+
+    capture = cv2.VideoCapture(path)
+    if not capture.isOpened():
+        raise RuntimeError(f"Cannot open generated video: {path}")
+    frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = float(capture.get(cv2.CAP_PROP_FPS))
+    capture.release()
+    if frame_count != expected_frames:
+        raise RuntimeError(
+            f"{path}: found {frame_count} encoded frames, expected {expected_frames}"
+        )
+    if abs(fps - expected_fps) > 1e-3:
+        raise RuntimeError(f"{path}: encoded fps={fps}, expected {expected_fps}")
+
+
+def load_manifest(path: str, dataset: TextDataset, prompt_path: str):
+    records = []
+    prompt_file_sha256 = hashlib.sha256(
+        Path(prompt_path).read_bytes()
+    ).hexdigest()
+    prompt_sample_pairs = set()
+    with open(path, encoding="utf-8") as fp:
+        for line_number, line in enumerate(fp, start=1):
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            for key in (
+                "prompt_index",
+                "sample_index",
+                "seed",
+                "output_name",
+                "prompt",
+                "prompt_file_sha256",
+            ):
+                if key not in record:
+                    raise ValueError(f"{path}:{line_number}: missing {key}")
+            prompt_index = int(record["prompt_index"])
+            if prompt_index < 0 or prompt_index >= len(dataset):
+                raise IndexError(f"{path}:{line_number}: prompt_index={prompt_index} is out of range")
+            if int(record["sample_index"]) < 0 or int(record["seed"]) < 0:
+                raise ValueError(f"{path}:{line_number}: sample_index and seed must be non-negative")
+            output_name = str(record["output_name"])
+            if os.path.basename(output_name) != output_name or not output_name.endswith(".mp4"):
+                raise ValueError(f"{path}:{line_number}: output_name must be a plain .mp4 filename")
+            expected_prompt = dataset[prompt_index]["prompts"]
+            if record["prompt"] != expected_prompt:
+                raise ValueError(f"{path}:{line_number}: prompt text does not match prompt_index")
+            if record["prompt_file_sha256"] != prompt_file_sha256:
+                raise ValueError(
+                    f"{path}:{line_number}: prompt_file_sha256 does not match {prompt_path}"
+                )
+            pair = (prompt_index, int(record["sample_index"]))
+            if pair in prompt_sample_pairs:
+                raise ValueError(
+                    f"{path}:{line_number}: duplicate prompt/sample pair {pair}"
+                )
+            prompt_sample_pairs.add(pair)
+            records.append(record)
+    if not records:
+        raise ValueError(f"Manifest contains no records: {path}")
+    output_names = [str(record["output_name"]) for record in records]
+    if len(output_names) != len(set(output_names)):
+        raise ValueError(f"Manifest contains duplicate output_name values: {path}")
+    return records
+
+
+def select_records_for_shard(records, shard_index: int, num_shards: int):
+    if num_shards < 1:
+        raise ValueError("num_shards must be positive")
+    if shard_index < 0 or shard_index >= num_shards:
+        raise ValueError(
+            f"shard_index must be in [0, {num_shards - 1}], got {shard_index}"
+        )
+    return records[shard_index::num_shards]
+
+
+@torch.no_grad()
+def stream_decode_to_video(vae, latents: torch.Tensor, output_path: str, fps: int):
+    import imageio.v2 as imageio
+
+    if latents.shape[0] != 1:
+        raise ValueError("Streaming VAE decode currently requires batch size 1")
+    vae.model.clear_cache()
+    writer = imageio.get_writer(
+        output_path,
+        fps=fps,
+        codec="libx264",
+        quality=8,
+        macro_block_size=1,
+    )
+    frames_written = 0
+    try:
+        for latent_index in range(latents.shape[1]):
+            pixels = vae.decode_to_pixel(
+                latents[:, latent_index:latent_index + 1],
+                use_cache=True,
+            )
+            frames = (
+                (pixels[0] * 0.5 + 0.5)
+                .clamp(0, 1)
+                .mul(255)
+                .to(torch.uint8)
+                .permute(0, 2, 3, 1)
+                .cpu()
+                .numpy()
+            )
+            for frame in frames:
+                writer.append_data(frame)
+                frames_written += 1
+    finally:
+        writer.close()
+        vae.model.clear_cache()
+
+    expected_frames = 1 + 4 * (latents.shape[1] - 1)
+    if frames_written != expected_frames:
+        raise RuntimeError(
+            f"Streaming VAE wrote {frames_written} frames; expected {expected_frames}"
+        )
+    return frames_written
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config_path", type=str, required=True)
@@ -111,8 +256,13 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--limit", type=int, default=-1)
     parser.add_argument("--num_samples_per_prompt", type=int, default=1)
+    parser.add_argument("--shard_index", type=int, default=0)
+    parser.add_argument("--num_shards", type=int, default=1)
+    parser.add_argument("--manifest_path", type=str, default="")
+    parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--prompt_embedding_cache_path", type=str, default="")
     parser.add_argument("--offload_generator_before_decode", action="store_true")
+    parser.add_argument("--streaming_decode", action="store_true")
     parser.add_argument(
         "--naming",
         type=str,
@@ -125,7 +275,21 @@ def main():
     torch.set_grad_enabled(False)
     set_seed(args.seed)
 
-    config = OmegaConf.load(args.config_path)
+    if args.fps <= 0:
+        raise ValueError("--fps must be positive")
+    if args.num_output_frames < 1:
+        raise ValueError("--num_output_frames must be positive")
+    if args.streaming_decode and not args.offload_generator_before_decode:
+        raise ValueError("--streaming_decode requires --offload_generator_before_decode")
+    if args.num_shards < 1:
+        raise ValueError("--num_shards must be positive")
+    if args.shard_index < 0 or args.shard_index >= args.num_shards:
+        raise ValueError(
+            f"--shard_index must be in [0, {args.num_shards - 1}], "
+            f"got {args.shard_index}"
+        )
+
+    config = load_config(args.config_path)
 
     cached_text_encoder = (
         CachedPromptTextEncoder(args.prompt_embedding_cache_path)
@@ -136,7 +300,7 @@ def main():
     pipeline = CausalInferencePipeline(config, device=device, text_encoder=cached_text_encoder)
 
     generator_state = load_generator_state(args.checkpoint_path, use_ema=args.use_ema)
-    pipeline.generator.load_state_dict(generator_state, strict=False, assign=True)
+    pipeline.generator.load_state_dict(generator_state, strict=True, assign=True)
     del generator_state
     gc.collect()
 
@@ -149,16 +313,50 @@ def main():
         prompt_path=args.prompt_path,
         extended_prompt_path=args.extended_prompt_path or None,
     )
-    if args.limit > 0:
-        indices = range(min(args.limit, len(dataset)))
-    else:
-        indices = range(len(dataset))
     if args.num_samples_per_prompt <= 0:
         raise ValueError("--num_samples_per_prompt must be positive")
 
     os.makedirs(args.output_folder, exist_ok=True)
 
-    for idx in indices:
+    if args.manifest_path:
+        all_records = load_manifest(args.manifest_path, dataset, args.prompt_path)
+        if args.limit > 0:
+            all_records = all_records[:args.limit]
+        expected_names = {
+            str(record["output_name"]) for record in all_records
+        }
+        existing_names = {
+            name
+            for name in os.listdir(args.output_folder)
+            if name.lower().endswith(".mp4")
+        }
+        extra_names = sorted(existing_names - expected_names)
+        if extra_names:
+            raise ValueError(
+                f"Output folder contains videos outside the selected manifest: "
+                f"{extra_names[:8]}"
+            )
+    else:
+        num_prompts = min(args.limit, len(dataset)) if args.limit > 0 else len(dataset)
+        all_records = [
+            {
+                "prompt_index": idx,
+                "sample_index": sample_idx,
+                "seed": args.seed + idx * args.num_samples_per_prompt + sample_idx,
+            }
+            for idx in range(num_prompts)
+            for sample_idx in range(args.num_samples_per_prompt)
+        ]
+    records = select_records_for_shard(
+        all_records,
+        shard_index=args.shard_index,
+        num_shards=args.num_shards,
+    )
+
+    for record in records:
+        idx = int(record["prompt_index"])
+        sample_idx = int(record["sample_index"])
+        sample_seed = int(record["seed"])
         batch = dataset[idx]
         prompt = batch["prompts"]
         conditioned_prompt = batch.get("extended_prompts", prompt)
@@ -167,8 +365,10 @@ def main():
         if args.naming in {"raw_prompt", "raw_prompt_index"}:
             raw_prompt_name = raw_filename(prompt)
 
-        for sample_idx in range(args.num_samples_per_prompt):
-            global_idx = idx * args.num_samples_per_prompt + sample_idx
+        global_idx = idx * args.num_samples_per_prompt + sample_idx
+        if "output_name" in record:
+            filename = str(record["output_name"])
+        else:
             if args.naming == "index":
                 filename = f"{global_idx:04d}.mp4"
             elif args.naming == "prompt":
@@ -182,46 +382,99 @@ def main():
             else:
                 filename = f"{safe_prompt}-{global_idx:04d}.mp4"
 
-            output_path = os.path.join(args.output_folder, filename)
-            if os.path.exists(output_path):
-                print(f"Skipping existing {output_path}", flush=True)
+        output_path = os.path.join(args.output_folder, filename)
+        expected_frames = 1 + 4 * (args.num_output_frames - 1)
+        if os.path.exists(output_path):
+            validate_video(output_path, expected_frames, args.fps)
+            print(f"Skipping existing {output_path}", flush=True)
+            continue
+
+        # The private generator controls the initial latent, while the inference
+        # pipeline uses the default CUDA RNG for intermediate re-noising in
+        # multi-step schedules. Reset both streams per record so a manifest seed
+        # is order-independent and controls every stochastic operation.
+        set_seed(sample_seed)
+        if args.offload_generator_before_decode:
+            pipeline.text_encoder.to(device)
+            pipeline.generator.to(device)
+            torch.cuda.empty_cache()
+
+        generator = torch.Generator(device=device)
+        generator.manual_seed(sample_seed)
+        sampled_noise = torch.randn(
+            [1, args.num_output_frames, 16, 60, 104],
+            device=device,
+            dtype=torch.bfloat16,
+            generator=generator,
+        )
+
+        video, latents = pipeline.inference(
+            noise=sampled_noise,
+            text_prompts=[conditioned_prompt],
+            return_latents=True,
+            return_video=not args.offload_generator_before_decode,
+        )
+        if args.offload_generator_before_decode:
+            pipeline.text_encoder.to("cpu")
+            pipeline.generator.to("cpu")
+            torch.cuda.empty_cache()
+            if args.streaming_decode:
+                frames_written = stream_decode_to_video(
+                    pipeline.vae,
+                    latents,
+                    output_path,
+                    fps=args.fps,
+                )
+                print(
+                    f"Wrote {output_path} ({frames_written} frames, seed={sample_seed})",
+                    flush=True,
+                )
+                validate_video(output_path, expected_frames, args.fps)
+                del latents, sampled_noise
+                torch.cuda.empty_cache()
                 continue
-
-            if args.offload_generator_before_decode:
-                pipeline.text_encoder.to(device)
-                pipeline.generator.to(device)
-                torch.cuda.empty_cache()
-
-            generator = torch.Generator(device=device)
-            generator.manual_seed(args.seed + idx * args.num_samples_per_prompt + sample_idx)
-            sampled_noise = torch.randn(
-                [1, args.num_output_frames, 16, 60, 104],
-                device=device,
-                dtype=torch.bfloat16,
-                generator=generator,
-            )
-
-            video, latents = pipeline.inference(
-                noise=sampled_noise,
-                text_prompts=[conditioned_prompt],
-                return_latents=True,
-                return_video=not args.offload_generator_before_decode,
-            )
-            if args.offload_generator_before_decode:
-                pipeline.text_encoder.to("cpu")
-                pipeline.generator.to("cpu")
-                torch.cuda.empty_cache()
+            else:
                 video = pipeline.vae.decode_to_pixel(latents, use_cache=False)
                 video = (video * 0.5 + 0.5).clamp(0, 1)
 
-            video = 255.0 * rearrange(video, "b t c h w -> b t h w c").cpu()
-            write_video_with_fallback(output_path, video[0], fps=16)
-            print(f"Wrote {output_path}", flush=True)
-            pipeline.vae.model.clear_cache()
+        video = 255.0 * rearrange(video, "b t c h w -> b t h w c").cpu()
+        write_video_with_fallback(output_path, video[0], fps=args.fps)
+        validate_video(output_path, expected_frames, args.fps)
+        print(f"Wrote {output_path} (seed={sample_seed})", flush=True)
+        pipeline.vae.model.clear_cache()
 
-    done_path = os.path.join(args.output_folder, "export.done")
+    if args.num_shards == 1:
+        done_name = "export.done"
+    else:
+        done_name = (
+            f"export.shard_{args.shard_index:02d}_of_{args.num_shards:02d}.done"
+        )
+    done_path = os.path.join(args.output_folder, done_name)
     with open(done_path, "w", encoding="utf-8") as fp:
-        fp.write("ok\n")
+        json.dump(
+            {
+                "checkpoint_path": os.path.abspath(args.checkpoint_path),
+                "config_path": os.path.abspath(args.config_path),
+                "manifest_path": (
+                    os.path.abspath(args.manifest_path) if args.manifest_path else None
+                ),
+                "num_videos": len(records),
+                "num_total_videos": len(all_records),
+                "shard_index": args.shard_index,
+                "num_shards": args.num_shards,
+                "latent_frames_per_video": args.num_output_frames,
+                "rgb_frames_per_video": 1 + 4 * (args.num_output_frames - 1),
+                "fps": args.fps,
+                "seed_scope": (
+                    "Each manifest seed controls both initial latent noise and "
+                    "multi-step intermediate re-noising."
+                ),
+            },
+            fp,
+            indent=2,
+            sort_keys=True,
+        )
+        fp.write("\n")
     print(f"Wrote {done_path}", flush=True)
 
 

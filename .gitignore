@@ -17,6 +17,7 @@ logs/
 eval/
 wandb/
 wan_models/
+/wan_models
 
 *.pt
 *.pth

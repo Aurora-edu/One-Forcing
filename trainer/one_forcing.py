@@ -1,4 +1,5 @@
 import gc
+import json
 import logging
 import os
 import time
@@ -24,8 +25,13 @@ from utils.prompt_embedding_cache import PromptEmbeddingLMDBCache
 def _normalize_state_dict_keys(state_dict):
     fixed = {}
     for key, value in state_dict.items():
-        if key.startswith("model._fsdp_wrapped_module."):
-            key = key.replace("model._fsdp_wrapped_module.", "model.", 1)
+        if key.startswith("_fsdp_wrapped_module."):
+            key = key.removeprefix("_fsdp_wrapped_module.")
+        key = key.replace("._fsdp_wrapped_module.", ".")
+        if key in fixed:
+            raise KeyError(
+                f"Checkpoint keys collide after FSDP normalization: {key}"
+            )
         fixed[key] = value
     return fixed
 
@@ -51,6 +57,14 @@ def _build_optimizer(optimizer_type, params, lr, betas, weight_decay):
             weight_decay=weight_decay,
         )
     raise ValueError(f"Unsupported optimizer_type: {optimizer_type}")
+
+
+def _move_optimizer_state(optimizer, device) -> None:
+    """Move optimizer tensors without changing their values or structure."""
+    for state in optimizer.state.values():
+        for key, value in state.items():
+            if torch.is_tensor(value):
+                state[key] = value.to(device=device, non_blocking=False)
 
 
 def _infer_dataset_type(data_path: str) -> str:
@@ -82,13 +96,30 @@ class Trainer:
         self.disable_wandb = config.disable_wandb
         self.max_steps = int(getattr(config, "max_steps", 0))
         self.resume_ema_from_ckpt = bool(getattr(config, "resume_ema_from_ckpt", True))
+        self.output_path = config.logdir
 
-        if config.seed == 0:
+        if bool(getattr(config, "randomize_seed", False)):
             random_seed = torch.randint(0, 10000000, (1,), device=self.device)
             dist.broadcast(random_seed, src=0)
             config.seed = random_seed.item()
 
+        if int(config.seed) < 0:
+            raise ValueError("seed must be non-negative; use randomize_seed: true for a random seed")
         set_seed(config.seed + global_rank)
+        if self.is_main_process:
+            print(
+                f"BASE SEED {int(config.seed)} (randomize_seed="
+                f"{bool(getattr(config, 'randomize_seed', False))})",
+                flush=True,
+            )
+            if self.output_path:
+                os.makedirs(self.output_path, exist_ok=True)
+                with open(
+                    os.path.join(self.output_path, "runtime_seed.txt"),
+                    "w",
+                    encoding="utf-8",
+                ) as fp:
+                    fp.write(f"{int(config.seed)}\n")
 
         if self.is_main_process and not self.disable_wandb:
             wandb.login(host=config.wandb_host, key=config.wandb_key)
@@ -101,7 +132,6 @@ class Trainer:
                 dir=config.wandb_save_dir,
             )
 
-        self.output_path = config.logdir
         self.model = OneForcing(config, device=self.device)
         self.prompt_embedding_cache = None
         if getattr(config, "prompt_embedding_cache_path", ""):
@@ -118,13 +148,22 @@ class Trainer:
         if rank0_preload_resume and getattr(config, "generator_ckpt_after_resume", ""):
             self._preload_unwrapped_generator_from_checkpoint(config.generator_ckpt_after_resume)
             self._generator_after_resume_loaded_before_fsdp = True
+        self._generator_ckpt_loaded_before_fsdp = False
+        rank0_preload_generator = (
+            bool(getattr(config, "rank0_preload_generator_ckpt", False))
+            and bool(getattr(config, "generator_ckpt", ""))
+            and not rank0_preload_resume
+        )
+        if rank0_preload_generator:
+            self._preload_unwrapped_generator_from_checkpoint(config.generator_ckpt)
+            self._generator_ckpt_loaded_before_fsdp = True
 
         generator_fsdp_kwargs = get_fsdp_wrap_kwargs(
             config,
             "generator",
             default_transformer_modules=["causal_wan_block"],
         )
-        if rank0_preload_resume:
+        if rank0_preload_resume or rank0_preload_generator:
             generator_fsdp_kwargs["sync_module_states"] = True
         self.model.generator = fsdp_wrap(
             self.model.generator,
@@ -262,7 +301,7 @@ class Trainer:
         self.generator_ema = None
         self._resume_ema_state = None
 
-        if getattr(config, "generator_ckpt", ""):
+        if getattr(config, "generator_ckpt", "") and not self._generator_ckpt_loaded_before_fsdp:
             self._load_generator_checkpoint(config.generator_ckpt)
         if getattr(config, "resume_ckpt", "") and not self._resume_loaded_before_fsdp:
             self._resume_from_checkpoint(config.resume_ckpt)
@@ -318,6 +357,7 @@ class Trainer:
         sampler = torch.utils.data.distributed.DistributedSampler(
             dataset,
             shuffle=True,
+            seed=int(self.config.seed),
             drop_last=True,
         )
         dataloader = torch.utils.data.DataLoader(
@@ -691,7 +731,13 @@ class Trainer:
         )
         return critic_log_dict
 
-    def _log_step(self, train_generator, generator_log_dict, critic_log_dict):
+    def _log_step(
+        self,
+        train_generator,
+        generator_log_dict,
+        critic_log_dict,
+        iteration_time=None,
+    ):
         if not self.is_main_process:
             return
 
@@ -743,11 +789,21 @@ class Trainer:
             ):
                 if key in generator_log_dict:
                     log_dict[key] = generator_log_dict[key].float().mean().item()
+        if iteration_time is not None:
+            log_dict["per_iteration_time"] = float(iteration_time)
 
         if not self.disable_wandb:
             wandb.log(log_dict, step=self.step)
         else:
             print(log_dict, flush=True)
+        if self.output_path:
+            os.makedirs(self.output_path, exist_ok=True)
+            with open(
+                os.path.join(self.output_path, "metrics.jsonl"),
+                "a",
+                encoding="utf-8",
+            ) as fp:
+                fp.write(json.dumps(log_dict, sort_keys=True) + "\n")
 
     def train(self):
         while self.max_steps <= 0 or self.step < self.max_steps:
@@ -782,7 +838,11 @@ class Trainer:
                     train_generator=True,
                     real_batch=real_batch,
                 )
+                if getattr(self.config, "generator_optimizer_state_cpu_offload", False):
+                    _move_optimizer_state(self.generator_optimizer, self.device)
                 self.generator_optimizer.step()
+                if getattr(self.config, "generator_optimizer_state_cpu_offload", False):
+                    _move_optimizer_state(self.generator_optimizer, "cpu")
                 if self.generator_ema is not None:
                     self.generator_ema.update(self.model.generator)
                 self.generator_optimizer.zero_grad(set_to_none=True)
@@ -856,28 +916,23 @@ class Trainer:
                 self.save()
                 torch.cuda.empty_cache()
 
-            self._log_step(train_generator, generator_log_dict, critic_log_dict)
-
             if self.step % self.config.gc_interval == 0:
                 if self.is_main_process:
                     logging.info("DistGarbageCollector: Running GC.")
                 gc.collect()
                 torch.cuda.empty_cache()
 
-            if self.is_main_process:
-                current_time = time.time()
-                if self.previous_time is None:
-                    self.previous_time = current_time
-                else:
-                    iteration_time = current_time - self.previous_time
-                    if not self.disable_wandb:
-                        wandb.log({"per iteration time": iteration_time}, step=self.step)
-                    else:
-                        print(
-                            {"step": self.step, "per_iteration_time": iteration_time},
-                            flush=True,
-                        )
-                    self.previous_time = current_time
+            current_time = time.time()
+            iteration_time = (
+                None if self.previous_time is None else current_time - self.previous_time
+            )
+            self.previous_time = current_time
+            self._log_step(
+                train_generator,
+                generator_log_dict,
+                critic_log_dict,
+                iteration_time=iteration_time,
+            )
 
         if not self.config.no_save:
             self.save()

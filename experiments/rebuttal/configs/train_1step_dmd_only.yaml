@@ -1,0 +1,7 @@
+_base_: train_1step_one_forcing.yaml
+
+experiment_id: train_1step_dmd_only
+gan_g_weight: 0.0
+gan_d_weight: 0.0
+r1_weight: 0.0
+r2_weight: 0.0
