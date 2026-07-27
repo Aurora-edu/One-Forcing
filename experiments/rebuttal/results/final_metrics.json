@@ -1,0 +1,584 @@
+{
+  "generated_utc": "2026-07-27T21:27:14Z",
+  "git_branch": "review",
+  "git_commit": "9d5bc81d78a4e2b153ff74c4c7c0ae65dc1026cb",
+  "deadline_clock": {
+    "start_utc": "2026-07-26T02:57:09Z",
+    "deadline_utc": "2026-07-28T02:57:09Z"
+  },
+  "hardware": {
+    "training_node": "a3u50asia-a3u-44 (Slurm job 9558), 8x NVIDIA H200 141GB, driver 570.172.08",
+    "eval_nodes": [
+      "a3u50asia-a3u-44 (track A)",
+      "a3u50asia-a3u-38 (track B, Slurm job 9759)",
+      "a3u50asia-a3u-0 (track C, Slurm job 9760)"
+    ],
+    "gpu_ids": "0,1,2,3,4,5,6,7 on each node (all verified idle before use)",
+    "torch": "2.5.1+cu124",
+    "note": "README's 8xA100 assumption replaced by measured 8xH200; evaluation was fanned out to three identical H200 nodes on user instruction, each condition still 8-way sharded with identical manifests/seeds."
+  },
+  "training_seed": 0,
+  "single_seed_disclosure": "All training runs use seed 0 (single seed). VBench 5 samples/prompt and diversity 4 samples/prompt are generation seeds, not training seeds. The stability curve uses four checkpoints of one run and does not represent cross-seed variance.",
+  "training": {
+    "train_1step_one_forcing_600": {
+      "run_dir": "runs/rebuttal/train_1step_one_forcing_600/seed_0",
+      "seed": 0,
+      "final_step": 600,
+      "num_metric_records": 600,
+      "checkpoints": [
+        "checkpoint_model_000100",
+        "checkpoint_model_000200",
+        "checkpoint_model_000300",
+        "checkpoint_model_000400",
+        "checkpoint_model_000500",
+        "checkpoint_model_000600"
+      ],
+      "wallclock_hours_first_to_done": 4.091,
+      "mean_seconds_per_logged_iteration": 23.676,
+      "final_generator_loss": 0.22337564826011658,
+      "final_critic_loss": 0.08336521685123444,
+      "all_metrics_finite": true
+    },
+    "train_1step_dmd_only_200": {
+      "run_dir": "runs/rebuttal/train_1step_dmd_only_200/seed_0",
+      "seed": 0,
+      "final_step": 200,
+      "num_metric_records": 200,
+      "checkpoints": [
+        "checkpoint_model_000100",
+        "checkpoint_model_000200"
+      ],
+      "wallclock_hours_first_to_done": 0.931,
+      "mean_seconds_per_logged_iteration": 14.2,
+      "final_generator_loss": 0.4816737771034241,
+      "final_critic_loss": 0.1279296875,
+      "all_metrics_finite": true
+    },
+    "train_4step_one_forcing_300": {
+      "run_dir": "runs/rebuttal/train_4step_one_forcing_300/seed_0",
+      "seed": 0,
+      "final_step": 300,
+      "num_metric_records": 300,
+      "checkpoints": [
+        "checkpoint_model_000100",
+        "checkpoint_model_000200",
+        "checkpoint_model_000300"
+      ],
+      "wallclock_hours_first_to_done": 2.305,
+      "mean_seconds_per_logged_iteration": 26.978,
+      "final_generator_loss": 0.5539563298225403,
+      "final_critic_loss": 0.10527952760457993,
+      "all_metrics_finite": true
+    }
+  },
+  "vbench_final_official": {
+    "main_step600_ffe": {
+      "per_dimension": {
+        "subject_consistency": 0.9390731710917327,
+        "background_consistency": 0.9408740731172783,
+        "temporal_flickering": 0.9839055683709429,
+        "motion_smoothness": 0.9885088128707913,
+        "dynamic_degree": 0.8888888888888888,
+        "aesthetic_quality": 0.6242027001355284,
+        "imaging_quality": 0.682525376450409,
+        "object_class": 0.8099683544303797,
+        "multiple_objects": 0.6481707317073171,
+        "human_action": 0.752,
+        "color": 0.8659288189064864,
+        "spatial_relationship": 0.7302245817933346,
+        "scene": 0.2763081395348837,
+        "temporal_style": 0.24454857087135315,
+        "appearance_style": 0.19321961805555563,
+        "overall_consistency": 0.23598393797073314
+      },
+      "official": {
+        "quality_score": 0.8500753617143805,
+        "semantic_score": 0.6820278187515203,
+        "total_score": 0.8164658531218084
+      },
+      "num_prompts": 944,
+      "samples_per_prompt": 5,
+      "num_videos": 4720,
+      "generation_seed_base": 0
+    },
+    "main_step600_all1": {
+      "per_dimension": {
+        "subject_consistency": 0.8008135407332639,
+        "background_consistency": 0.8977430263785429,
+        "temporal_flickering": 0.9701789783396745,
+        "motion_smoothness": 0.9871439084688741,
+        "dynamic_degree": 0.9611111111111111,
+        "aesthetic_quality": 0.5599086546128796,
+        "imaging_quality": 0.5982676552534898,
+        "object_class": 0.7066455696202532,
+        "multiple_objects": 0.36402439024390243,
+        "human_action": 0.728,
+        "color": 0.8611515970531317,
+        "spatial_relationship": 0.5152246157975214,
+        "scene": 0.21453488372093024,
+        "temporal_style": 0.23772036670148372,
+        "appearance_style": 0.20259687500000023,
+        "overall_consistency": 0.24002004381149045
+      },
+      "official": {
+        "quality_score": 0.7924615353675002,
+        "semantic_score": 0.6063500765351519,
+        "total_score": 0.7552392436010306
+      },
+      "num_prompts": 944,
+      "samples_per_prompt": 5,
+      "num_videos": 4720,
+      "generation_seed_base": 0
+    },
+    "of4_step300_all4": {
+      "per_dimension": {
+        "subject_consistency": 0.963141328344386,
+        "background_consistency": 0.9713990535292515,
+        "temporal_flickering": 0.9960577036611387,
+        "motion_smoothness": 0.9847504547387922,
+        "dynamic_degree": 0.3055555555555556,
+        "aesthetic_quality": 0.6406815471187715,
+        "imaging_quality": 0.7017257449413288,
+        "object_class": 0.8395569620253165,
+        "multiple_objects": 0.6626524390243902,
+        "human_action": 0.758,
+        "color": 0.858015289449113,
+        "spatial_relationship": 0.774223811018699,
+        "scene": 0.2728197674418605,
+        "temporal_style": 0.2371535239815712,
+        "appearance_style": 0.2027204861111112,
+        "overall_consistency": 0.2362829376292485
+      },
+      "official": {
+        "quality_score": 0.8244483133280925,
+        "semantic_score": 0.6926724724021369,
+        "total_score": 0.7980931451429014
+      },
+      "num_prompts": 944,
+      "samples_per_prompt": 5,
+      "num_videos": 4720,
+      "generation_seed_base": 0
+    },
+    "sf4_all4": {
+      "per_dimension": {
+        "subject_consistency": 0.888396704809598,
+        "background_consistency": 0.8690621132074401,
+        "temporal_flickering": 0.9751069209965222,
+        "motion_smoothness": 0.9812407143659334,
+        "dynamic_degree": 0.41944444444444445,
+        "aesthetic_quality": 0.571260948847699,
+        "imaging_quality": 0.6144213492731384,
+        "object_class": 0.7454113924050633,
+        "multiple_objects": 0.5083841463414634,
+        "human_action": 0.76,
+        "color": 0.8063122569509428,
+        "spatial_relationship": 0.5960430107165915,
+        "scene": 0.22979651162790699,
+        "temporal_style": 0.21902941352128982,
+        "appearance_style": 0.21501458333333312,
+        "overall_consistency": 0.23342185448254307
+      },
+      "official": {
+        "quality_score": 0.7637629018258063,
+        "semantic_score": 0.6323304157591614,
+        "total_score": 0.7374764046124773
+      },
+      "num_prompts": 944,
+      "samples_per_prompt": 5,
+      "num_videos": 4720,
+      "generation_seed_base": 0
+    }
+  },
+  "gan_ablation_vbench7_step200_paired": {
+    "conditions": {
+      "main_step200_ffe_gan7": {
+        "per_dimension": {
+          "subject_consistency": 0.5576137588123471,
+          "background_consistency": 0.7910678703840389,
+          "temporal_flickering": 0.9571979797612604,
+          "motion_smoothness": 0.9608654423955141,
+          "dynamic_degree": 1.0,
+          "aesthetic_quality": 0.3478764328905331,
+          "imaging_quality": 0.5871002701673637
+        },
+        "unweighted_mean_of_7_dims": 0.7431031077730081,
+        "num_prompts": 326,
+        "samples_per_prompt": 5,
+        "num_videos": 1630
+      },
+      "dmd_step200_ffe_gan7": {
+        "per_dimension": {
+          "subject_consistency": 0.9385805644710653,
+          "background_consistency": 0.9219767654773801,
+          "temporal_flickering": 0.9730289379244524,
+          "motion_smoothness": 0.98444963848453,
+          "dynamic_degree": 0.8944444444444445,
+          "aesthetic_quality": 0.6196460213071556,
+          "imaging_quality": 0.6861254159012556
+        },
+        "unweighted_mean_of_7_dims": 0.8597502554300406,
+        "num_prompts": 326,
+        "samples_per_prompt": 5,
+        "num_videos": 1630
+      }
+    },
+    "delta_main_minus_dmd": {
+      "subject_consistency": -0.3809668056587182,
+      "background_consistency": -0.13090889509334114,
+      "temporal_flickering": -0.01583095816319202,
+      "motion_smoothness": -0.023584196089015963,
+      "dynamic_degree": 0.10555555555555551,
+      "aesthetic_quality": -0.2717695884166225,
+      "imaging_quality": -0.09902514573389198
+    }
+  },
+  "stability_vbench5_steps": {
+    "100": {
+      "subject_consistency": 0.541062237195761,
+      "background_consistency": 0.813488233699355,
+      "temporal_flickering": 0.9389160288093918,
+      "motion_smoothness": 0.9498071344991224,
+      "dynamic_degree": 1.0
+    },
+    "200": {
+      "subject_consistency": 0.5576137588123471,
+      "background_consistency": 0.7910678703840389,
+      "temporal_flickering": 0.9571979797612604,
+      "motion_smoothness": 0.9608654423955141,
+      "dynamic_degree": 1.0
+    },
+    "400": {
+      "subject_consistency": 0.825107340307428,
+      "background_consistency": 0.886877643673919,
+      "temporal_flickering": 0.9663099906453907,
+      "motion_smoothness": 0.9840279221432021,
+      "dynamic_degree": 1.0
+    },
+    "600": {
+      "subject_consistency": 0.9390731710917327,
+      "background_consistency": 0.9408740731172783,
+      "temporal_flickering": 0.9839055683709429,
+      "motion_smoothness": 0.9885088128707913,
+      "dynamic_degree": 0.8888888888888888
+    }
+  },
+  "ffe_comparison": {
+    "note": "FFE on/off both use MAIN600 (checkpoint_model_000600), official manifest.",
+    "ffe_on": {
+      "quality_score": 0.8500753617143805,
+      "semantic_score": 0.6820278187515203,
+      "total_score": 0.8164658531218084
+    },
+    "ffe_off_all1": {
+      "quality_score": 0.7924615353675002,
+      "semantic_score": 0.6063500765351519,
+      "total_score": 0.7552392436010306
+    }
+  },
+  "fourstep_comparison": {
+    "note": "Both all4 schedule, shared official manifest/seeds; SF4 is the released gdhe17/Self-Forcing self_forcing_dmd.pt (sha256 verified).",
+    "one_forcing_4step_step300": {
+      "quality_score": 0.8244483133280925,
+      "semantic_score": 0.6926724724021369,
+      "total_score": 0.7980931451429014
+    },
+    "self_forcing_4step": {
+      "quality_score": 0.7637629018258063,
+      "semantic_score": 0.6323304157591614,
+      "total_score": 0.7374764046124773
+    }
+  },
+  "diversity_lpips": {
+    "conditions": {
+      "main_step200": {
+        "mean_pairwise_lpips": 0.4453936936954657,
+        "sample_std_over_prompts": 0.033676540018912494,
+        "standard_error": 0.0033676540018912496,
+        "bootstrap_95ci": [
+          0.439163201170663,
+          0.45207887975499034
+        ],
+        "num_prompts": 100,
+        "samples_per_prompt": null,
+        "metric": "lpips-vgg"
+      },
+      "dmd_step200": {
+        "mean_pairwise_lpips": 0.6429631969332695,
+        "sample_std_over_prompts": 0.05578040402429492,
+        "standard_error": 0.005578040402429492,
+        "bootstrap_95ci": [
+          0.6321780987493694,
+          0.6534505941681564
+        ],
+        "num_prompts": 100,
+        "samples_per_prompt": null,
+        "metric": "lpips-vgg"
+      }
+    },
+    "delta_main_minus_dmd": -0.1975695032378038,
+    "sf1_condition": "NOT RUN: no 1-step Self-Forcing checkpoint exists on this machine or in the official gdhe17/Self-Forcing release; reported as unavailable rather than substituted."
+  },
+  "fvd_prdc_256": {
+    "main_step200": {
+      "fvd": 2717.9302466122126,
+      "num_real_videos": 256,
+      "num_fake_videos": 256,
+      "num_sampled_frames": 16,
+      "feature_distribution_metrics": {
+        "coverage": 0.625,
+        "density": 1.8468749999999998,
+        "nearest_k": 5,
+        "precision": 0.953125,
+        "recall": 0.01953125
+      },
+      "bootstrap": null
+    },
+    "dmd_step200": {
+      "fvd": 846.326166576825,
+      "num_real_videos": 256,
+      "num_fake_videos": 256,
+      "num_sampled_frames": 16,
+      "feature_distribution_metrics": {
+        "coverage": 0.88671875,
+        "density": 0.784375,
+        "nearest_k": 5,
+        "precision": 0.75,
+        "recall": 0.765625
+      },
+      "bootstrap": null
+    }
+  },
+  "latency_h200_21latents": {
+    "main600_all1": {
+      "hardware": {
+        "cuda_version": "12.4",
+        "gpu_name": "NVIDIA H200",
+        "torch_version": "2.5.1+cu124"
+      },
+      "trials": 20,
+      "warmup": 3,
+      "num_output_frames": null,
+      "include_vae": true,
+      "nfe": null,
+      "summary_ms": {
+        "diffusion_ms": {
+          "mean": 2460.693994140625,
+          "std": 8.439831845895531,
+          "min": 2447.058837890625,
+          "max": 2480.2626953125
+        },
+        "first_block_ms": {
+          "mean": 101.9729175567627,
+          "std": 1.6732621837862047,
+          "min": 99.38572692871094,
+          "max": 105.397216796875
+        },
+        "initialization_ms": {
+          "mean": 0.8440336018800736,
+          "std": 0.06682932276201911,
+          "min": 0.7856960296630859,
+          "max": 1.0163840055465698
+        },
+        "prompt_encoding_ms": {
+          "mean": 49.590808295761235,
+          "std": 61.76800568787023,
+          "min": 34.89529597572982,
+          "max": 311.99555000057444
+        },
+        "steady_block_mean_ms": {
+          "mean": 117.80912710189818,
+          "std": 0.40587171325442567,
+          "min": 117.25934028625488,
+          "max": 118.87221031188965
+        },
+        "total_ms": {
+          "mean": 4133.188302591001,
+          "std": 66.11321710283885,
+          "min": 4106.271718420554,
+          "max": 4412.470114314463
+        },
+        "vae_ms": {
+          "mean": 1622.0594665527344,
+          "std": 1.005963786070944,
+          "min": 1619.7452392578125,
+          "max": 1623.167724609375
+        }
+      }
+    },
+    "main600_ffe": {
+      "hardware": {
+        "cuda_version": "12.4",
+        "gpu_name": "NVIDIA H200",
+        "torch_version": "2.5.1+cu124"
+      },
+      "trials": 20,
+      "warmup": 3,
+      "num_output_frames": null,
+      "include_vae": true,
+      "nfe": null,
+      "summary_ms": {
+        "diffusion_ms": {
+          "mean": 2533.7074584960938,
+          "std": 4.852473148450577,
+          "min": 2526.08642578125,
+          "max": 2545.13818359375
+        },
+        "first_block_ms": {
+          "mean": 477.68908843994143,
+          "std": 1.1407525721377,
+          "min": 476.708984375,
+          "max": 481.8487243652344
+        },
+        "initialization_ms": {
+          "mean": 0.7724112004041672,
+          "std": 0.015270677257507047,
+          "min": 0.7436800003051758,
+          "max": 0.8088319897651672
+        },
+        "prompt_encoding_ms": {
+          "mean": 35.58318589057308,
+          "std": 0.3209028640027142,
+          "min": 35.29532696120441,
+          "max": 36.48759098723531
+        },
+        "steady_block_mean_ms": {
+          "mean": 120.77864976770738,
+          "std": 0.24834309147642922,
+          "min": 120.31614505543428,
+          "max": 121.20743964700138
+        },
+        "total_ms": {
+          "mean": 4190.373272872227,
+          "std": 4.641618406071704,
+          "min": 4181.177645867225,
+          "max": 4201.091443987563
+        },
+        "vae_ms": {
+          "mean": 1620.3102172851563,
+          "std": 0.6880192416856995,
+          "min": 1618.972412109375,
+          "max": 1621.064208984375
+        }
+      }
+    },
+    "main600_all4": {
+      "hardware": {
+        "cuda_version": "12.4",
+        "gpu_name": "NVIDIA H200",
+        "torch_version": "2.5.1+cu124"
+      },
+      "trials": 20,
+      "warmup": 3,
+      "num_output_frames": null,
+      "include_vae": true,
+      "nfe": null,
+      "summary_ms": {
+        "diffusion_ms": {
+          "mean": 6065.331567382813,
+          "std": 19.57354972986269,
+          "min": 6028.31591796875,
+          "max": 6102.9375
+        },
+        "first_block_ms": {
+          "mean": 244.36719436645507,
+          "std": 4.809923886250504,
+          "min": 237.68496704101562,
+          "max": 253.63687133789062
+        },
+        "initialization_ms": {
+          "mean": 0.8086656033992767,
+          "std": 0.04205760978751505,
+          "min": 0.779744029045105,
+          "max": 0.9581760168075562
+        },
+        "prompt_encoding_ms": {
+          "mean": 35.49723434844054,
+          "std": 0.3784507575158401,
+          "min": 34.673293004743755,
+          "max": 35.93636897858232
+        },
+        "steady_block_mean_ms": {
+          "mean": 290.87115306854247,
+          "std": 0.9389005835715649,
+          "min": 289.3575050354004,
+          "max": 292.6670112609863
+        },
+        "total_ms": {
+          "mean": 7723.130167529965,
+          "std": 19.54859723960006,
+          "min": 7685.426523446571,
+          "max": 7760.0911187417805
+        },
+        "vae_ms": {
+          "mean": 1621.4927001953124,
+          "std": 0.5396488219270572,
+          "min": 1620.2694091796875,
+          "max": 1622.263916015625
+        }
+      }
+    },
+    "of4_step300_all4": {
+      "hardware": {
+        "cuda_version": "12.4",
+        "gpu_name": "NVIDIA H200",
+        "torch_version": "2.5.1+cu124"
+      },
+      "trials": 20,
+      "warmup": 3,
+      "num_output_frames": null,
+      "include_vae": true,
+      "nfe": null,
+      "summary_ms": {
+        "diffusion_ms": {
+          "mean": 6009.013354492187,
+          "std": 17.855567064390048,
+          "min": 5976.3857421875,
+          "max": 6045.44580078125
+        },
+        "first_block_ms": {
+          "mean": 239.8047966003418,
+          "std": 4.401240223506606,
+          "min": 233.07650756835938,
+          "max": 247.19577026367188
+        },
+        "initialization_ms": {
+          "mean": 0.7938896000385285,
+          "std": 0.058779021714798874,
+          "min": 0.7563199996948242,
+          "max": 0.9503359794616699
+        },
+        "prompt_encoding_ms": {
+          "mean": 35.55972534813918,
+          "std": 0.3458960979563047,
+          "min": 34.66354700503871,
+          "max": 36.09470900846645
+        },
+        "steady_block_mean_ms": {
+          "mean": 288.2867941665649,
+          "std": 0.7750782335020384,
+          "min": 286.9955924987793,
+          "max": 289.93562240600585
+        },
+        "total_ms": {
+          "mean": 7665.758699176693,
+          "std": 17.709868986402718,
+          "min": 7632.402426506858,
+          "max": 7701.8035539225675
+        },
+        "vae_ms": {
+          "mean": 1620.3917297363282,
+          "std": 0.6396402844790295,
+          "min": 1619.004638671875,
+          "max": 1621.3546142578125
+        }
+      }
+    }
+  },
+  "protocol_notes": [
+    "EMA export bug fixed before official runs: EMA_FSDP.full_state_dict dropped all FSDP flat-wrapped block parameters; all official checkpoints verified to contain complete generator_ema.",
+    "All evaluations use --use_ema per README.",
+    "opencv-python replaced by opencv-python-headless (no libGL on cluster nodes); all audited package versions unchanged.",
+    "GRiT weights fetched from OpenGVLab/VBench_Used_Models HF mirror (Azure origin URL returns an error); identical filename and size.",
+    "Long-video and curvature causal-intervention experiments were not run this round, per README."
+  ]
+}
