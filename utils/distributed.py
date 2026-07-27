@@ -210,14 +210,12 @@ class EMA_FSDP:
             if n in self.shadow:
                 p.data.copy_(self.shadow[n].to(dtype=p.dtype, device=p.device))
 
-        checkpoint = fsdp_state_dict(fsdp_module)
-        shadow_checkpoint = {}
-        for n in self.shadow:
-            k = n
-            if k not in checkpoint and k.startswith("model._fsdp_wrapped_module."):
-                k = k.replace("model._fsdp_wrapped_module.", "model.", 1)
-            if k in checkpoint:
-                shadow_checkpoint[n] = checkpoint[k]
+        # With use_orig_params=False the shadow tracks FSDP flat params, so the
+        # EMA weights were just copied into the module above; the gathered
+        # full state dict below therefore already IS the complete EMA state
+        # under clean parameter names (plus current buffer values). Filtering
+        # it against shadow keys would drop every flat-wrapped block.
+        shadow_checkpoint = fsdp_state_dict(fsdp_module)
         for n, p in fsdp_module.module.named_parameters():
             if n in live_state:
                 p.data.copy_(live_state[n].to(dtype=p.dtype, device=p.device))
