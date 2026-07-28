@@ -316,6 +316,8 @@ def main():
         str(args.fps),
         "--limit",
         str(args.limit),
+        "--expected_weight_source",
+        "generator_ema" if args.use_ema else "generator",
     ]
     subprocess.run(validation_command, cwd=REPO_ROOT, check=True)
 

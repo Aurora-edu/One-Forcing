@@ -10,6 +10,11 @@ import numpy as np
 import torch
 
 from experiments.rebuttal.analyze_curvature import curvature_metrics
+from experiments.rebuttal.audit_noema_checkpoint import audit_checkpoint
+from experiments.rebuttal.curvature_intervention import (
+    curvature_profile,
+    rectify_trajectory,
+)
 from experiments.rebuttal.evaluate_fvd import frechet_distance, manifold_metrics
 from experiments.rebuttal.estimate_training_eta import estimate
 from experiments.rebuttal.estimate_evaluation_eta import estimate as estimate_evaluation
@@ -155,6 +160,19 @@ class MetricTests(unittest.TestCase):
         self.assertAlmostEqual(metrics["mean_turning_angle_radians"], 0.0, places=7)
         self.assertAlmostEqual(metrics["normalized_second_difference"], 0.0, places=7)
 
+    def test_paired_curvature_rectification_preserves_controlled_endpoints(self):
+        timesteps = [1000.0, 750.0, 500.0, 250.0, 0.0, None]
+        trajectory = torch.tensor(
+            [10.0, 8.0, 8.5, 3.0, 0.0, 123.0], dtype=torch.float32
+        ).reshape(6, 1, 1, 1, 1)
+        rectified = rectify_trajectory(trajectory, timesteps)
+        self.assertTrue(torch.equal(rectified[0], trajectory[0]))
+        self.assertTrue(torch.equal(rectified[-2], trajectory[-2]))
+        self.assertTrue(torch.equal(rectified[-1], trajectory[-1]))
+        self.assertGreater(max(curvature_profile(trajectory, timesteps)), 0.0)
+        for value in curvature_profile(rectified, timesteps):
+            self.assertAlmostEqual(value, 0.0, places=12)
+
     def test_long_window_positions_are_exact(self):
         self.assertEqual(
             starts_for(961, 81, ["early", "middle", "late"]),
@@ -244,6 +262,8 @@ class ResourcePathTests(unittest.TestCase):
                     "latent_frames_per_video": 2,
                     "rgb_frames_per_video": 5,
                     "fps": 16,
+                    "weight_source": "generator",
+                    "use_ema": False,
                 }
                 (output / f"export.shard_{shard_index:02d}_of_02.done").write_text(
                     json.dumps(payload),
@@ -259,8 +279,10 @@ class ResourcePathTests(unittest.TestCase):
                     num_shards=2,
                     latent_frames=2,
                     fps=16,
+                    expected_weight_source="generator",
                 )
             self.assertEqual(result["num_videos"], 3)
+            self.assertFalse(result["use_ema"])
             self.assertEqual(validate_video_mock.call_count, 3)
             (output / "export.shard_01_of_02.done").unlink()
             with self.assertRaisesRegex(FileNotFoundError, "Missing shard"):
@@ -357,6 +379,23 @@ class ResourcePathTests(unittest.TestCase):
             state = load_generator_state(str(checkpoint), use_ema=False)
             self.assertEqual(list(state), ["model.blocks.0.weight"])
 
+    def test_raw_checkpoint_audit_checks_internal_step(self):
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "model.pt"
+            torch.save(
+                {
+                    "step": 200,
+                    "generator": {"weight": torch.ones(1)},
+                    "generator_ema": {"weight": torch.zeros(1)},
+                },
+                checkpoint,
+            )
+            result = audit_checkpoint(checkpoint, expected_step=200)
+            self.assertFalse(result["use_ema"])
+            self.assertEqual(result["selected_weight_source"], "generator")
+            with self.assertRaisesRegex(ValueError, "step mismatch"):
+                audit_checkpoint(checkpoint, expected_step=400)
+
     def test_vbench_standard_requires_all_five_samples(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -376,6 +415,24 @@ class ResourcePathTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "five samples"):
                 validate_standard_coverage(
                     videos[:-1], str(full_info), ["temporal_flickering"]
+                )
+
+    def test_vbench_standard_accepts_explicit_single_sample_protocol(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            full_info = root / "full_info.json"
+            full_info.write_text(
+                '[{"prompt_en": "test prompt", "dimension": ["scene"]}]',
+                encoding="utf-8",
+            )
+            video = root / "test prompt-0.mp4"
+            video.touch()
+            validate_standard_coverage(
+                [video], str(full_info), ["scene"], samples_per_prompt=1
+            )
+            with self.assertRaisesRegex(ValueError, "samples_per_prompt"):
+                validate_standard_coverage(
+                    [video], str(full_info), ["scene"], samples_per_prompt=0
                 )
 
     def test_vbench_nan_or_empty_result_is_rejected(self):

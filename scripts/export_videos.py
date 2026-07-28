@@ -454,6 +454,8 @@ def main():
         json.dump(
             {
                 "checkpoint_path": os.path.abspath(args.checkpoint_path),
+                "weight_source": "generator_ema" if args.use_ema else "generator",
+                "use_ema": bool(args.use_ema),
                 "config_path": os.path.abspath(args.config_path),
                 "manifest_path": (
                     os.path.abspath(args.manifest_path) if args.manifest_path else None

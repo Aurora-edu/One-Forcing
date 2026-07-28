@@ -18,10 +18,13 @@ Usage:
     --output_root eval/final/main_step600_ffe \
     --gpus 0,1,2,3,4,5,6,7 \
     --vbench_python PATH/TO/VBENCH/PYTHON \
-    --use_ema
+    --samples_per_prompt 1 \
+    --require_no_ema
 
 Options:
   --dimensions CSV   Optional selected VBench dimensions. Omit for all 16.
+  --samples_per_prompt N  Generated samples per prompt, from 1 to 5. Default: 5.
+  --require_no_ema   Reject --use_ema and audit raw generator provenance.
   --python PATH      Training/inference Python. Default: python.
 EOF
 }
@@ -38,6 +41,8 @@ GPUS=""
 VBENCH_PYTHON=""
 DIMENSIONS=""
 USE_EMA="0"
+REQUIRE_NO_EMA="0"
+SAMPLES_PER_PROMPT="5"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 while [[ $# -gt 0 ]]; do
@@ -53,6 +58,8 @@ while [[ $# -gt 0 ]]; do
     --gpus) GPUS="$2"; shift 2 ;;
     --vbench_python) VBENCH_PYTHON="$2"; shift 2 ;;
     --dimensions) DIMENSIONS="$2"; shift 2 ;;
+    --samples_per_prompt) SAMPLES_PER_PROMPT="$2"; shift 2 ;;
+    --require_no_ema) REQUIRE_NO_EMA="1"; shift ;;
     --use_ema) USE_EMA="1"; shift ;;
     --python) PYTHON_BIN="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -73,6 +80,14 @@ case "${SCHEDULE}" in
 esac
 if [[ ! "${NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   echo "--name contains unsupported characters" >&2
+  exit 1
+fi
+if [[ ! "${SAMPLES_PER_PROMPT}" =~ ^[1-5]$ ]]; then
+  echo "--samples_per_prompt must be an integer in [1, 5]" >&2
+  exit 1
+fi
+if [[ "${REQUIRE_NO_EMA}" == "1" && "${USE_EMA}" == "1" ]]; then
+  echo "--require_no_ema cannot be combined with --use_ema" >&2
   exit 1
 fi
 
@@ -124,6 +139,7 @@ VBENCH_CMD=(
   --output_dir "${VBENCH_DIR}"
   --name "${NAME}"
   --device cuda
+  --samples_per_prompt "${SAMPLES_PER_PROMPT}"
 )
 if [[ -n "${DIMENSIONS}" ]]; then
   IFS=',' read -r -a DIMENSION_ARRAY <<< "${DIMENSIONS}"
@@ -139,5 +155,18 @@ RESULT_PATH="${VBENCH_DIR}/${NAME}_eval_results.json"
 if [[ ! -s "${RESULT_PATH}" ]]; then
   echo "VBench result missing or empty: ${RESULT_PATH}" >&2
   exit 1
+fi
+if [[ "${REQUIRE_NO_EMA}" == "1" ]]; then
+  "${PYTHON_BIN}" - "${VIDEOS_DIR}/export.done" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+payload = json.loads(path.read_text(encoding="utf-8"))
+if payload.get("use_ema") is not False or payload.get("weight_source") != "generator":
+    raise SystemExit(f"Raw/no-EMA provenance audit failed: {path}: {payload}")
+print(f"PASS: raw/no-EMA provenance audited in {path}")
+PY
 fi
 echo "PASS: ${RESULT_PATH}"

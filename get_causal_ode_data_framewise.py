@@ -8,6 +8,7 @@ import argparse
 import torch
 import math
 import os
+import json
 from utils.dataset import LatentLMDBDataset
 from scripts.export_videos import load_generator_state
 
@@ -39,9 +40,28 @@ def main():
     parser.add_argument("--guidance_scale", type=float, default=6.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--use_ema", action="store_true")
+    parser.add_argument(
+        "--require_no_ema",
+        action="store_true",
+        help="Fail closed if EMA loading is requested.",
+    )
+    parser.add_argument("--limit", type=int, default=-1)
 
 
     args = parser.parse_args()
+
+    if args.require_no_ema and args.use_ema:
+        raise ValueError("--require_no_ema cannot be combined with --use_ema")
+    if args.limit == 0 or args.limit < -1:
+        raise ValueError("--limit must be -1 or positive")
+    if not os.path.isfile(args.generator_ckpt):
+        raise FileNotFoundError(args.generator_ckpt)
+    if not os.path.isdir(args.rawdata_path):
+        raise FileNotFoundError(args.rawdata_path)
+    if os.path.exists(args.output_folder) and os.listdir(args.output_folder):
+        raise FileExistsError(
+            f"Refusing to mix trajectories with existing output: {args.output_folder}"
+        )
 
     launch_distributed_job()
     global_rank = dist.get_rank()
@@ -60,17 +80,39 @@ def main():
 
 
     dataset = LatentLMDBDataset(args.rawdata_path)
+    dataset_size = len(dataset) if args.limit < 0 else min(len(dataset), args.limit)
 
     if global_rank == 0:
         os.makedirs(args.output_folder, exist_ok=True)
+        with open(
+            os.path.join(args.output_folder, "trajectory_generation.intent.json"),
+            "w",
+            encoding="utf-8",
+        ) as stream:
+            json.dump(
+                {
+                    "schema_version": 1,
+                    "rawdata_path": os.path.realpath(args.rawdata_path),
+                    "generator_ckpt": os.path.realpath(args.generator_ckpt),
+                    "guidance_scale": args.guidance_scale,
+                    "seed": args.seed,
+                    "num_trajectories": dataset_size,
+                    "use_ema": bool(args.use_ema),
+                    "weight_source": "generator_ema" if args.use_ema else "generator",
+                },
+                stream,
+                indent=2,
+                sort_keys=True,
+            )
+            stream.write("\n")
     dist.barrier()
         
-    total_steps = int(math.ceil(len(dataset) / dist.get_world_size()))
+    total_steps = int(math.ceil(dataset_size / dist.get_world_size()))
     for index in tqdm(
         range(total_steps), disable=(dist.get_rank() != 0),
     ):
         prompt_index = index * dist.get_world_size() + dist.get_rank()
-        if prompt_index >= len(dataset):
+        if prompt_index >= dataset_size:
             continue
         sample = dataset[prompt_index]
         prompt = sample["prompts"]
@@ -142,6 +184,7 @@ def main():
                 "guidance_scale": args.guidance_scale,
                 "generator_ckpt": os.path.realpath(args.generator_ckpt),
                 "use_ema": args.use_ema,
+                "weight_source": "generator_ema" if args.use_ema else "generator",
             },
             os.path.join(args.output_folder, f"{prompt_index:05d}.pt")
         )

@@ -89,7 +89,10 @@ def validate_standard_coverage(
     videos: list[Path],
     full_info_path: str,
     dimensions: list[str],
+    samples_per_prompt: int = 5,
 ) -> None:
+    if samples_per_prompt < 1 or samples_per_prompt > 5:
+        raise ValueError("samples_per_prompt must be in [1, 5]")
     with open(full_info_path, "r", encoding="utf-8") as fp:
         full_info = json.load(fp)
     if not isinstance(full_info, list) or not full_info:
@@ -105,7 +108,10 @@ def validate_standard_coverage(
             continue
         prompt = record["prompt_en"]
         selected_prompts += 1
-        expected.update(f"{prompt}-{sample_index}{suffix}" for sample_index in range(5))
+        expected.update(
+            f"{prompt}-{sample_index}{suffix}"
+            for sample_index in range(samples_per_prompt)
+        )
 
     if selected_prompts == 0:
         raise ValueError(
@@ -120,8 +126,9 @@ def validate_standard_coverage(
             f"\n  ... and {remainder} more missing files" if remainder else ""
         )
         raise ValueError(
-            "Incomplete VBench standard input. The official protocol requires five "
-            "samples per selected prompt, named '<prompt>-0' through '<prompt>-4'. "
+            "Incomplete VBench standard input. This run requires "
+            f"{samples_per_prompt} sample(s) per selected prompt, starting at "
+            "'<prompt>-0'. The official leaderboard protocol uses five samples. "
             f"Missing {len(missing)} of {len(expected)} required files:\n"
             f"{preview}{suffix_message}"
         )
@@ -235,13 +242,23 @@ def main():
         choices=["vbench_standard", "custom_input"],
         default="vbench_standard",
         help=(
-            "Use vbench_standard only for the official prompt set with five samples "
-            "per prompt. Use custom_input for long-video windows or smoke tests."
+            "Use vbench_standard for the official prompt set. One-sample runs score "
+            "all dimensions but are not official five-sample leaderboard submissions. "
+            "Use custom_input only for long-video windows or smoke tests."
         ),
+    )
+    parser.add_argument(
+        "--samples_per_prompt",
+        type=int,
+        default=5,
+        help="Expected generated samples per standard prompt (1-5).",
     )
     parser.add_argument("--vbench_repo", type=str, default="")
     parser.add_argument("--zip_name", type=str, default="")
     args = parser.parse_args()
+
+    if args.samples_per_prompt < 1 or args.samples_per_prompt > 5:
+        raise ValueError("--samples_per_prompt must be in [1, 5]")
 
     validate_vbench_versions()
     videos = discover_videos(args.videos_path)
@@ -250,6 +267,7 @@ def main():
             videos=videos,
             full_info_path=args.full_info_path,
             dimensions=args.dimensions,
+            samples_per_prompt=args.samples_per_prompt,
         )
 
     try:
@@ -305,6 +323,24 @@ def main():
                 staging_path=staging_path,
                 videos=videos,
             )
+            protocol_path = Path(args.output_dir) / f"{args.name}_protocol.json"
+            with open(protocol_path, "w", encoding="utf-8") as stream:
+                json.dump(
+                    {
+                        "schema_version": 1,
+                        "mode": args.mode,
+                        "samples_per_prompt": args.samples_per_prompt,
+                        "official_five_sample_protocol": (
+                            args.mode == "vbench_standard"
+                            and args.samples_per_prompt == 5
+                        ),
+                        "dimensions": args.dimensions,
+                    },
+                    stream,
+                    indent=2,
+                    sort_keys=True,
+                )
+                stream.write("\n")
     finally:
         if distributed:
             barrier()

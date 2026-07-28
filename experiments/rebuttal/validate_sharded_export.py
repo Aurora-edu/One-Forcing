@@ -67,7 +67,10 @@ def validate_export(
     latent_frames: int,
     fps: int,
     limit: int = -1,
+    expected_weight_source: str | None = None,
 ):
+    if expected_weight_source not in {None, "generator", "generator_ema"}:
+        raise ValueError(f"Invalid expected_weight_source={expected_weight_source!r}")
     records = read_manifest(manifest_path, limit=limit)
     expected_names = {str(record["output_name"]) for record in records}
     actual_names = {
@@ -104,6 +107,9 @@ def validate_export(
             "rgb_frames_per_video": 1 + 4 * (latent_frames - 1),
             "fps": fps,
         }
+        if expected_weight_source is not None:
+            checks["weight_source"] = expected_weight_source
+            checks["use_ema"] = expected_weight_source == "generator_ema"
         mismatches = {
             key: (payload.get(key), expected)
             for key, expected in checks.items()
@@ -128,7 +134,7 @@ def validate_export(
                 flush=True,
             )
 
-    return {
+    result = {
         "schema_version": 1,
         "checkpoint_path": checkpoint_resolved,
         "checkpoint_size_bytes": checkpoint_path.stat().st_size,
@@ -141,6 +147,10 @@ def validate_export(
         "fps": fps,
         "status": "complete",
     }
+    if expected_weight_source is not None:
+        result["weight_source"] = expected_weight_source
+        result["use_ema"] = expected_weight_source == "generator_ema"
+    return result
 
 
 def atomic_write_json(path: Path, payload):
@@ -162,6 +172,11 @@ def main():
     parser.add_argument("--num_output_frames", type=int, default=21)
     parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--limit", type=int, default=-1)
+    parser.add_argument(
+        "--expected_weight_source",
+        choices=["generator", "generator_ema"],
+        required=True,
+    )
     args = parser.parse_args()
 
     if args.num_shards < 1:
@@ -186,6 +201,7 @@ def main():
         latent_frames=args.num_output_frames,
         fps=args.fps,
         limit=args.limit,
+        expected_weight_source=args.expected_weight_source,
     )
     done_path = output_folder / "export.done"
     atomic_write_json(done_path, payload)
