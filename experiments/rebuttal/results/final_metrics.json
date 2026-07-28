@@ -1,7 +1,7 @@
 {
-  "generated_utc": "2026-07-27T21:27:14Z",
+  "generated_utc": "2026-07-28T18:11:12Z",
   "git_branch": "review",
-  "git_commit": "9d5bc81d78a4e2b153ff74c4c7c0ae65dc1026cb",
+  "git_commit": "68c3a452df0435c041c4630cd9e90b789ff7543e",
   "deadline_clock": {
     "start_utc": "2026-07-26T02:57:09Z",
     "deadline_utc": "2026-07-28T02:57:09Z"
@@ -570,6 +570,420 @@
           "std": 0.6396402844790295,
           "min": 1619.004638671875,
           "max": 1621.3546142578125
+        }
+      }
+    }
+  },
+  "noema_ablation": {
+    "note": "Ablation with raw (non-EMA) generator weights, requested after the official EMA results were finalized. Same manifests, seeds, schedules, and pipeline; only --use_ema removed. SF4 no-EMA is impossible: the released self_forcing_dmd.pt contains only generator_ema.",
+    "vbench_final": {
+      "main_step600_ffe_noema": {
+        "per_dimension": {
+          "subject_consistency": 0.9728219157002039,
+          "background_consistency": 0.9564553691065588,
+          "temporal_flickering": 0.988479456293818,
+          "motion_smoothness": 0.9889441447169688,
+          "dynamic_degree": 0.19722222222222222,
+          "aesthetic_quality": 0.6408452608252084,
+          "imaging_quality": 0.7158276753650304,
+          "object_class": 0.8332278481012658,
+          "multiple_objects": 0.6814024390243902,
+          "human_action": 0.75,
+          "color": 0.8801676246638933,
+          "spatial_relationship": 0.7511873246512943,
+          "scene": 0.26744186046511625,
+          "temporal_style": 0.23725440289080144,
+          "appearance_style": 0.19182552083333348,
+          "overall_consistency": 0.22751477489708571
+        },
+        "official": {
+          "quality_score": 0.8160091660597224,
+          "semantic_score": 0.6854394684201562,
+          "total_score": 0.7898952265318091
+        },
+        "num_prompts": 944,
+        "samples_per_prompt": 5,
+        "num_videos": 4720
+      },
+      "main_step600_all1_noema": {
+        "per_dimension": {
+          "subject_consistency": 0.8645175217557699,
+          "background_consistency": 0.9036683654785156,
+          "temporal_flickering": 0.9863510244967892,
+          "motion_smoothness": 0.9875518733482108,
+          "dynamic_degree": 0.3,
+          "aesthetic_quality": 0.6194138989653638,
+          "imaging_quality": 0.6894709222566455,
+          "object_class": 0.7887658227848101,
+          "multiple_objects": 0.541920731707317,
+          "human_action": 0.724,
+          "color": 0.8765049523445048,
+          "spatial_relationship": 0.6256851515879206,
+          "scene": 0.23590116279069767,
+          "temporal_style": 0.23020884416997434,
+          "appearance_style": 0.1969407986111112,
+          "overall_consistency": 0.23356961378407093
+        },
+        "official": {
+          "quality_score": 0.7844329150575889,
+          "semantic_score": 0.6451930115940231,
+          "total_score": 0.7565849343648757
+        },
+        "num_prompts": 944,
+        "samples_per_prompt": 5,
+        "num_videos": 4720
+      },
+      "of4_step300_all4_noema": {
+        "per_dimension": {
+          "subject_consistency": 0.9595055863395743,
+          "background_consistency": 0.9528596532067587,
+          "temporal_flickering": 0.9869991472206858,
+          "motion_smoothness": 0.9877867095518231,
+          "dynamic_degree": 0.7472222222222222,
+          "aesthetic_quality": 0.6387401900624716,
+          "imaging_quality": 0.7164525435409844,
+          "object_class": 0.8365506329113924,
+          "multiple_objects": 0.6452743902439024,
+          "human_action": 0.754,
+          "color": 0.8746344262553737,
+          "spatial_relationship": 0.7666110928556473,
+          "scene": 0.27063953488372094,
+          "temporal_style": 0.23859371778368949,
+          "appearance_style": 0.18986527777777773,
+          "overall_consistency": 0.23494007569807832
+        },
+        "official": {
+          "quality_score": 0.8537153829428428,
+          "semantic_score": 0.6856800657745548,
+          "total_score": 0.8201083195091851
+        },
+        "num_prompts": 944,
+        "samples_per_prompt": 5,
+        "num_videos": 4720
+      }
+    },
+    "gan_ablation_vbench7_step200_paired": {
+      "conditions": {
+        "main_step200_ffe_gan7_noema": {
+          "subject_consistency": 0.9274254323073866,
+          "background_consistency": 0.9222612567280614,
+          "temporal_flickering": 0.943509864898133,
+          "motion_smoothness": 0.9763640210272805,
+          "dynamic_degree": 0.9916666666666667,
+          "aesthetic_quality": 0.6278134350494672,
+          "imaging_quality": 0.6969090604297233
+        },
+        "dmd_step200_ffe_gan7_noema": {
+          "subject_consistency": 0.8102539896487081,
+          "background_consistency": 0.8748621599064317,
+          "temporal_flickering": 0.9653664185187396,
+          "motion_smoothness": 0.9751670369388874,
+          "dynamic_degree": 0.9833333333333333,
+          "aesthetic_quality": 0.550431606846471,
+          "imaging_quality": 0.5760747130267514
+        }
+      },
+      "delta_main_minus_dmd": {
+        "subject_consistency": 0.11717144265867852,
+        "background_consistency": 0.04739909682162968,
+        "temporal_flickering": -0.021856553620606567,
+        "motion_smoothness": 0.0011969840883930827,
+        "dynamic_degree": 0.008333333333333415,
+        "aesthetic_quality": 0.07738182820299622,
+        "imaging_quality": 0.12083434740297194
+      }
+    },
+    "stability_vbench5_steps": {
+      "100": {
+        "subject_consistency": 0.6138825912414825,
+        "background_consistency": 0.848756270297738,
+        "temporal_flickering": 0.9880022268494749,
+        "motion_smoothness": 0.9904640911956043,
+        "dynamic_degree": 0.9333333333333333
+      },
+      "200": {
+        "subject_consistency": 0.9274254323073866,
+        "background_consistency": 0.9222612567280614,
+        "temporal_flickering": 0.943509864898133,
+        "motion_smoothness": 0.9763640210272805,
+        "dynamic_degree": 0.9916666666666667
+      },
+      "400": {
+        "subject_consistency": 0.9685409282003017,
+        "background_consistency": 0.9485623772199764,
+        "temporal_flickering": 0.9940369835541927,
+        "motion_smoothness": 0.9924670039165063,
+        "dynamic_degree": 0.4222222222222222
+      },
+      "600": {
+        "subject_consistency": 0.9728219157002039,
+        "background_consistency": 0.9564553691065588,
+        "temporal_flickering": 0.988479456293818,
+        "motion_smoothness": 0.9889441447169688,
+        "dynamic_degree": 0.19722222222222222
+      }
+    },
+    "diversity_lpips": {
+      "main_step200": {
+        "mean_pairwise_lpips": 0.6440215464433036,
+        "bootstrap_95ci": [
+          0.6345819728051624,
+          0.6528672208848099
+        ]
+      },
+      "dmd_step200": {
+        "mean_pairwise_lpips": 0.6436792570352554,
+        "bootstrap_95ci": [
+          0.6327723769781489,
+          0.6549209143867095
+        ]
+      }
+    },
+    "fvd_prdc_256": {
+      "main_step200": {
+        "fvd": 983.0254443301142,
+        "feature_distribution_metrics": {
+          "coverage": 0.73046875,
+          "density": 0.49375,
+          "nearest_k": 5,
+          "precision": 0.6796875,
+          "recall": 0.7109375
+        }
+      },
+      "dmd_step200": {
+        "fvd": 936.2813584083403,
+        "feature_distribution_metrics": {
+          "coverage": 0.91015625,
+          "density": 1.37421875,
+          "nearest_k": 5,
+          "precision": 0.84765625,
+          "recall": 0.45703125
+        }
+      }
+    },
+    "latency_h200_21latents": {
+      "main600_all1": {
+        "hardware": {
+          "cuda_version": "12.4",
+          "gpu_name": "NVIDIA H200",
+          "torch_version": "2.5.1+cu124"
+        },
+        "trials": 20,
+        "warmup": 3,
+        "num_output_frames": null,
+        "include_vae": true,
+        "nfe": null,
+        "summary_ms": {
+          "diffusion_ms": {
+            "mean": 2463.0363037109373,
+            "std": 11.364895500398758,
+            "min": 2447.78955078125,
+            "max": 2496.786865234375
+          },
+          "first_block_ms": {
+            "mean": 104.09747161865235,
+            "std": 4.222254778202721,
+            "min": 100.02143859863281,
+            "max": 120.06089782714844
+          },
+          "initialization_ms": {
+            "mean": 0.8171312004327774,
+            "std": 0.04867675707963345,
+            "min": 0.7775359749794006,
+            "max": 0.9854720234870911
+          },
+          "prompt_encoding_ms": {
+            "mean": 35.418392050269176,
+            "std": 0.39566843445215266,
+            "min": 34.72735900140833,
+            "max": 35.83707200596109
+          },
+          "steady_block_mean_ms": {
+            "mean": 117.8193603515625,
+            "std": 0.43734302958898086,
+            "min": 117.14152450561524,
+            "max": 118.70822525024414
+          },
+          "total_ms": {
+            "mean": 4124.259113338592,
+            "std": 11.241137990461192,
+            "min": 4107.545672138338,
+            "max": 4157.535422090616
+          },
+          "vae_ms": {
+            "mean": 1624.987286376953,
+            "std": 0.8138340799539908,
+            "min": 1623.287109375,
+            "max": 1626.1024169921875
+          }
+        }
+      },
+      "main600_ffe": {
+        "hardware": {
+          "cuda_version": "12.4",
+          "gpu_name": "NVIDIA H200",
+          "torch_version": "2.5.1+cu124"
+        },
+        "trials": 20,
+        "warmup": 3,
+        "num_output_frames": null,
+        "include_vae": true,
+        "nfe": null,
+        "summary_ms": {
+          "diffusion_ms": {
+            "mean": 2531.6686889648436,
+            "std": 14.87712702322776,
+            "min": 2520.480712890625,
+            "max": 2582.524169921875
+          },
+          "first_block_ms": {
+            "mean": 480.27149505615233,
+            "std": 12.701044147476434,
+            "min": 476.63592529296875,
+            "max": 534.1928100585938
+          },
+          "initialization_ms": {
+            "mean": 0.7900127977132797,
+            "std": 0.051303342175362386,
+            "min": 0.7451199889183044,
+            "max": 0.9494720101356506
+          },
+          "prompt_encoding_ms": {
+            "mean": 35.544494352143374,
+            "std": 0.2558838623320983,
+            "min": 35.27971900621196,
+            "max": 36.32163500151364
+          },
+          "steady_block_mean_ms": {
+            "mean": 120.50476998721851,
+            "std": 0.5103748675784165,
+            "min": 120.0157309139476,
+            "max": 122.29100350772633
+          },
+          "total_ms": {
+            "mean": 4189.095908517044,
+            "std": 15.064044706233622,
+            "min": 4177.61322739569,
+            "max": 4241.337355909345
+          },
+          "vae_ms": {
+            "mean": 1621.0927124023438,
+            "std": 0.6027580402838294,
+            "min": 1620.4407958984375,
+            "max": 1622.797119140625
+          }
+        }
+      },
+      "main600_all4": {
+        "hardware": {
+          "cuda_version": "12.4",
+          "gpu_name": "NVIDIA H200",
+          "torch_version": "2.5.1+cu124"
+        },
+        "trials": 20,
+        "warmup": 3,
+        "num_output_frames": null,
+        "include_vae": true,
+        "nfe": null,
+        "summary_ms": {
+          "diffusion_ms": {
+            "mean": 6093.489306640625,
+            "std": 15.963788662727856,
+            "min": 6073.365234375,
+            "max": 6135.75927734375
+          },
+          "first_block_ms": {
+            "mean": 245.435050201416,
+            "std": 3.582225125589186,
+            "min": 239.94216918945312,
+            "max": 252.86764526367188
+          },
+          "initialization_ms": {
+            "mean": 0.8115295976400375,
+            "std": 0.06543918189039659,
+            "min": 0.7543039917945862,
+            "max": 0.9387199878692627
+          },
+          "prompt_encoding_ms": {
+            "mean": 35.67156180033635,
+            "std": 0.35158983339989625,
+            "min": 34.91424000094412,
+            "max": 36.46421500161523
+          },
+          "steady_block_mean_ms": {
+            "mean": 292.2204885482788,
+            "std": 0.7390172015040803,
+            "min": 291.03369522094727,
+            "max": 294.084049987793
+          },
+          "total_ms": {
+            "mean": 7754.707389493679,
+            "std": 16.026597349989817,
+            "min": 7734.989739036537,
+            "max": 7797.2523030607845
+          },
+          "vae_ms": {
+            "mean": 1624.7349914550782,
+            "std": 0.7094870526307514,
+            "min": 1622.7757568359375,
+            "max": 1625.473876953125
+          }
+        }
+      },
+      "of4_step300_all4": {
+        "hardware": {
+          "cuda_version": "12.4",
+          "gpu_name": "NVIDIA H200",
+          "torch_version": "2.5.1+cu124"
+        },
+        "trials": 20,
+        "warmup": 3,
+        "num_output_frames": null,
+        "include_vae": true,
+        "nfe": null,
+        "summary_ms": {
+          "diffusion_ms": {
+            "mean": 6062.4080078125,
+            "std": 19.288492666448334,
+            "min": 6032.12744140625,
+            "max": 6110.728515625
+          },
+          "first_block_ms": {
+            "mean": 245.43522033691406,
+            "std": 5.693690182253475,
+            "min": 240.708740234375,
+            "max": 265.29534912109375
+          },
+          "initialization_ms": {
+            "mean": 0.8078927963972091,
+            "std": 0.07265302708390184,
+            "min": 0.7483519911766052,
+            "max": 0.945792019367218
+          },
+          "prompt_encoding_ms": {
+            "mean": 35.56577475028462,
+            "std": 0.398774988551664,
+            "min": 34.722513002634514,
+            "max": 36.32706899952609
+          },
+          "steady_block_mean_ms": {
+            "mean": 290.66717800140384,
+            "std": 0.9557705035760494,
+            "min": 289.317317199707,
+            "max": 293.00420532226565
+          },
+          "total_ms": {
+            "mean": 7722.2298382009785,
+            "std": 19.287314776459013,
+            "min": 7692.002762924938,
+            "max": 7771.092103198287
+          },
+          "vae_ms": {
+            "mean": 1623.4481628417968,
+            "std": 0.19589841105714212,
+            "min": 1623.1866455078125,
+            "max": 1623.8197021484375
+          }
         }
       }
     }

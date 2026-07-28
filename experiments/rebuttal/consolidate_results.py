@@ -315,6 +315,78 @@ def main():
         ),
     }
 
+    # ---- Optional no-EMA ablation (raw generator weights, post-deadline
+    # operator-requested addendum; separate *_noema outputs) ----
+    noema = None
+    noema_final_conditions = {
+        "main_step600_ffe_noema": "eval/final_noema/main_step600_ffe/vbench/main_step600_ffe_noema_eval_results.json",
+        "main_step600_all1_noema": "eval/final_noema/main_step600_all1/vbench/main_step600_all1_noema_eval_results.json",
+        "of4_step300_all4_noema": "eval/final_noema/of4_step300_all4/vbench/of4_step300_all4_noema_eval_results.json",
+    }
+    if all((REPO / rel).is_file() for rel in noema_final_conditions.values()):
+        noema_final = {}
+        for name, rel in noema_final_conditions.items():
+            scores = load_vbench_results(REPO / rel)
+            noema_final[name] = {
+                "per_dimension": scores,
+                "official": official_totals(scores),
+                "num_prompts": 944,
+                "samples_per_prompt": 5,
+                "num_videos": 4720,
+            }
+        noema_gan = {
+            name: load_vbench_results(REPO / rel)
+            for name, rel in {
+                "main_step200_ffe_gan7_noema": "eval/gan_noema/main_step200_ffe_gan7/vbench/main_step200_ffe_gan7_noema_eval_results.json",
+                "dmd_step200_ffe_gan7_noema": "eval/gan_noema/dmd_step200_ffe_gan7/vbench/dmd_step200_ffe_gan7_noema_eval_results.json",
+            }.items()
+        }
+        noema_stability = {}
+        sweep_csv = REPO / "eval/stability_noema/main_ffe/vbench_sweep.csv"
+        for row in csv.DictReader(open(sweep_csv)):
+            rp = Path(row["result_json"])
+            if not rp.is_absolute():
+                rp = (sweep_csv.parent / rp).resolve()
+            noema_stability[int(row["step"])] = load_vbench_results(rp)
+        noema = {
+            "note": (
+                "Ablation with raw (non-EMA) generator weights, requested after "
+                "the official EMA results were finalized. Same manifests, seeds, "
+                "schedules, and pipeline; only --use_ema removed. SF4 no-EMA is "
+                "impossible: the released self_forcing_dmd.pt contains only "
+                "generator_ema."
+            ),
+            "vbench_final": noema_final,
+            "gan_ablation_vbench7_step200_paired": {
+                "conditions": noema_gan,
+                "delta_main_minus_dmd": {
+                    d: noema_gan["main_step200_ffe_gan7_noema"][d]
+                    - noema_gan["dmd_step200_ffe_gan7_noema"][d]
+                    for d in noema_gan["main_step200_ffe_gan7_noema"]
+                },
+            },
+            "stability_vbench5_steps": noema_stability,
+            "diversity_lpips": {
+                name: {
+                    k: read_json(REPO / f"eval/diversity_noema/{name}.json").get(k)
+                    for k in ("mean_pairwise_lpips", "bootstrap_95ci")
+                }
+                for name in ("main_step200", "dmd_step200")
+            },
+            "fvd_prdc_256": {
+                name: {
+                    k: read_json(REPO / f"eval/fvd_noema/{name}.json").get(k)
+                    for k in ("fvd", "feature_distribution_metrics")
+                }
+                for name in ("main_step200", "dmd_step200")
+            },
+            "latency_h200_21latents": {
+                name: latency_summary(REPO / f"eval/latency_noema/{name}.json")
+                for name in ("main600_all1", "main600_ffe", "main600_all4",
+                             "of4_step300_all4")
+            },
+        }
+
     payload = {
         "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_branch": branch,
@@ -362,6 +434,7 @@ def main():
         },
         "fvd_prdc_256": fvd,
         "latency_h200_21latents": latency,
+        "noema_ablation": noema,
         "protocol_notes": [
             "EMA export bug fixed before official runs: EMA_FSDP.full_state_dict "
             "dropped all FSDP flat-wrapped block parameters; all official "
@@ -421,6 +494,36 @@ def main():
                 block.get("trials"))
             if "std" in stats:
                 add("latency_ms", name, f"{metric}_std", stats["std"],
+                    block.get("trials"))
+    if noema:
+        for name, block in noema["vbench_final"].items():
+            for d, s in sorted(block["per_dimension"].items()):
+                add("noema_vbench_final", name, d, s, block["num_videos"])
+            if block["official"]:
+                for k, v in block["official"].items():
+                    add("noema_vbench_final", name, f"official_{k}", v,
+                        block["num_videos"])
+        for name, scores in noema["gan_ablation_vbench7_step200_paired"]["conditions"].items():
+            for d, s in sorted(scores.items()):
+                add("noema_gan_ablation_vbench7", name, d, s, 1630)
+        for d, s in sorted(
+            noema["gan_ablation_vbench7_step200_paired"]["delta_main_minus_dmd"].items()
+        ):
+            add("noema_gan_ablation_vbench7", "delta_main_minus_dmd", d, s, 1630)
+        for step, scores in sorted(noema["stability_vbench5_steps"].items()):
+            for d, s in sorted(scores.items()):
+                add("noema_stability_vbench5", f"main_ffe_step{step}", d, s, 1165)
+        for name, block in noema["diversity_lpips"].items():
+            add("noema_diversity_lpips", name, "mean_pairwise_lpips",
+                block["mean_pairwise_lpips"], 400)
+        for name, block in noema["fvd_prdc_256"].items():
+            add("noema_fvd_prdc", name, "fvd", block["fvd"], 256)
+            for k, v in (block.get("feature_distribution_metrics") or {}).items():
+                if isinstance(v, (int, float)):
+                    add("noema_fvd_prdc", name, k, v, 256)
+        for name, block in noema["latency_h200_21latents"].items():
+            for metric, stats in block["summary_ms"].items():
+                add("noema_latency_ms", name, f"{metric}_mean", stats["mean"],
                     block.get("trials"))
     for name, block in training.items():
         add("training", name, "final_step", block["final_step"])

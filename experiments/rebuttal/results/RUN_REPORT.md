@@ -168,7 +168,43 @@ numbers were not reused).
    The stability curve is checkpoint-trajectory variance of one run, not
    cross-seed variance.
 
-## 9. Sample sizes and pairing checklist (README §8)
+## 9. Post-deadline addendum: no-EMA ablation (operator-requested)
+
+After the official EMA results above were finalized and pushed (inside the
+48h window), the full evaluation suite was rerun with **raw generator
+weights** (`--use_ema` removed; everything else identical — same manifests,
+seeds, schedules, pipeline; outputs under separate `*_noema` roots; full
+numbers in `final_metrics.json` → `noema_ablation`). SF4 no-EMA is
+impossible: the released `self_forcing_dmd.pt` contains only
+`generator_ema`.
+
+| Metric | EMA (official) | no-EMA |
+|---|---:|---:|
+| VBench total, main-600 FFE | 0.8165 | 0.7899 |
+| VBench total, main-600 all1 | 0.7552 | 0.7566 |
+| VBench total, OF-4step-300 all4 | 0.7981 | 0.8201 |
+| GAN7 7-dim mean @200: full / DMD-only | 0.7431 / 0.8598 | **0.8694 / 0.8194** |
+| Stability 5-dim mean @100/200/400/600 | 0.849/0.853/0.933/0.948 | 0.875/0.952/0.865/0.821 |
+| LPIPS diversity @200: full / DMD-only | 0.4454 / 0.6430 | 0.6440 / 0.6437 |
+| FVD-256 @200: full / DMD-only | 2717.9 / 846.3 | 983.0 / 936.3 |
+
+Observations (reported without alteration):
+
+- The anomalous EMA step-200 results for the full method (§4, §6) are an
+  **EMA artifact**: with raw weights the full method leads DMD-only on the
+  GAN7 mean (+0.050), matches its diversity (0.644 vs 0.644), and has
+  comparable FVD (983 vs 936). The EMA (decay 0.99, start step 50) at step
+  200 still averages over early-training transients of the GAN branch.
+- Conversely, at step 600 EMA helps the 1-step model (+0.027 VBench total
+  with FFE), and the no-EMA stability curve degrades after step 200 while
+  the EMA curve rises monotonically — EMA is what makes long training
+  stable in weight space.
+- The 4-step model is better without EMA at step 300 (+0.022).
+
+No-EMA latency profiles match the EMA ones within noise (weights don't
+affect timing); see `final_metrics.json`.
+
+## 10. Sample sizes and pairing checklist (README §8)
 
 - [x] Full method seed 0 → 600; DMD-only seed 0 → 200; 4-step seed 0 → 300.
 - [x] All three runs tmux-launched via `launch_train.sh`, checked past
