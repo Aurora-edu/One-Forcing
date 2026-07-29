@@ -1,0 +1,50 @@
+{
+  "generated_utc": "2026-07-29T02:34:02Z",
+  "condition": "official_one_forcing_untrained_ffe_sink3_seed0",
+  "protocol": {
+    "checkpoint": "checkpoints/one_forcing.pt",
+    "checkpoint_source": "official One-Forcing release",
+    "use_ema": false,
+    "long_video_training": false,
+    "inference_schedule": "FFE: 4 denoising steps for the first latent block, then 1 step for each subsequent block",
+    "sink_size": 3,
+    "num_latent_frames": 241,
+    "num_rgb_frames": 961,
+    "fps": 16,
+    "num_prompts": 944,
+    "samples_per_prompt": 1,
+    "generation_seed": 0,
+    "num_videos": 944,
+    "evaluation_mode": "long_vbench_standard"
+  },
+  "per_dimension": {
+    "subject_consistency": 0.9435698542739726,
+    "background_consistency": 0.956679891952762,
+    "temporal_flickering": 0.9672662111993032,
+    "motion_smoothness": 0.9568649250828617,
+    "dynamic_degree": 0.9556451612903226,
+    "aesthetic_quality": 0.5054739400080638,
+    "imaging_quality": 0.5840469291281584,
+    "object_class": 0.8425632911392406,
+    "multiple_objects": 0.6406127065302911,
+    "human_action": 0.8642857142857143,
+    "color": 0.7768316018672434,
+    "spatial_relationship": 0.7278061876919536,
+    "scene": 0.35577644411102777,
+    "temporal_style": 0.17937480590306223,
+    "appearance_style": 0.21064769759898108,
+    "overall_consistency": 0.20724839843901163
+  },
+  "official_normalized": {
+    "quality_score": 0.8022905187445902,
+    "semantic_score": 0.6759950160794718,
+    "total_score": 0.7770314182115665
+  },
+  "validation": {
+    "all_944_videos_validated": true,
+    "all_16_dimensions_present": true,
+    "all_scores_finite": true,
+    "local_metrics_zip_sha256": "9644cd63fe8c36ac9257575aea7fcf636a96232a58825b07b7765a0c71634bcb"
+  },
+  "disclosure": "This is a single-generation-seed VBench-Long evaluation of the released short-video checkpoint using raw (no-EMA) weights and sink_size=3. No long-video-trained checkpoint is used. Raw videos and per-sample records remain local and are not included in this repository file."
+}

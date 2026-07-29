@@ -1,0 +1,92 @@
+{
+  "generated_utc": "2026-07-29T19:01:22Z",
+  "comparison": "official Self-Forcing vs official One-Forcing on 20-second rollouts",
+  "protocol": {
+    "evaluation": "standard VBench 16-dimension aggregation on 20-second videos",
+    "num_prompts": 944,
+    "samples_per_prompt": 1,
+    "generation_seed_base": 0,
+    "same_original_prompts": true,
+    "same_extended_prompts": true,
+    "original_prompt_file_sha256": "d802b4830e9ea85550e5fad2e9f077d74f79fcfad60d0b56b1314a0f5b652dc8",
+    "extended_prompt_file_sha256": "90dde244dc4bd613f52726c833f303e44254b410d386fe4f5faaa05c355756ac",
+    "inference_schedule": "4 denoising steps for the first latent block, then 1 step for each subsequent block",
+    "disclosure": "This is a single-generation-seed standard VBench evaluation of 20-second rollouts, not the 60-second VBench-Long protocol. Each method uses its released checkpoint's official weight convention: Self-Forcing EMA and One-Forcing raw/no-EMA."
+  },
+  "conditions": {
+    "self_forcing": {
+      "checkpoint": "self_forcing_dmd.pt",
+      "checkpoint_source": "official Self-Forcing release",
+      "use_ema": true,
+      "long_video_training": false,
+      "sink_size": null,
+      "per_dimension": {
+        "subject_consistency": 0.8792942835,
+        "background_consistency": 0.9163943978,
+        "temporal_flickering": 0.9907821635,
+        "motion_smoothness": 0.9787621208,
+        "dynamic_degree": 0.6805555556,
+        "aesthetic_quality": 0.5952794023,
+        "imaging_quality": 0.6397315157,
+        "object_class": 0.8900316456,
+        "multiple_objects": 0.6806402439,
+        "human_action": 0.92,
+        "color": 0.8600247142,
+        "spatial_relationship": 0.8159000591,
+        "scene": 0.53125,
+        "appearance_style": 0.213400106,
+        "temporal_style": 0.2409928137,
+        "overall_consistency": 0.2703120282
+      },
+      "official_normalized": {
+        "quality_score": 0.804854932,
+        "semantic_score": 0.7737861085,
+        "total_score": 0.7986411673
+      }
+    },
+    "one_forcing": {
+      "checkpoint": "one_forcing.pt",
+      "checkpoint_source": "official One-Forcing release",
+      "use_ema": false,
+      "long_video_training": false,
+      "sink_size": 3,
+      "source_rollout": "first 20 seconds cropped from the corresponding 60-second rollout",
+      "per_dimension": {
+        "subject_consistency": 0.8560310276,
+        "background_consistency": 0.9192174424,
+        "temporal_flickering": 0.9782542003,
+        "motion_smoothness": 0.9704086665,
+        "dynamic_degree": 0.9583333333,
+        "aesthetic_quality": 0.6115037664,
+        "imaging_quality": 0.6231722585,
+        "object_class": 0.9224683544,
+        "multiple_objects": 0.7118902439,
+        "human_action": 0.94,
+        "color": 0.8055524502,
+        "spatial_relationship": 0.7659253228,
+        "scene": 0.4723837209,
+        "appearance_style": 0.20728466,
+        "temporal_style": 0.2392445227,
+        "overall_consistency": 0.2518978648
+      },
+      "official_normalized": {
+        "quality_score": 0.8129591981,
+        "semantic_score": 0.7549821561,
+        "total_score": 0.8013637897
+      }
+    }
+  },
+  "delta_one_forcing_minus_self_forcing": {
+    "quality_score": 0.0081042661,
+    "semantic_score": -0.0188039524,
+    "total_score": 0.0027226224
+  },
+  "validation": {
+    "self_forcing_num_videos": 944,
+    "one_forcing_num_videos": 944,
+    "self_forcing_all_16_dimensions_present": true,
+    "one_forcing_all_16_dimensions_present": true,
+    "all_scores_finite": true
+  },
+  "storage_disclosure": "Raw videos, per-sample VBench records, model checkpoints, and evaluation logs remain in local/NFS storage and are not included in this repository file."
+}
