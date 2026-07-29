@@ -423,6 +423,17 @@ def main():
     p = REPO / "eval/followup/curvature_control/curvature_causal_summary.json"
     if p.is_file():
         followup["curvature_causal_intervention"] = read_json(p)
+    cf = {}
+    for sched in ("all1", "all4"):
+        p = REPO / f"eval/diversity_noema/cf_init_{sched}.json"
+        if p.is_file():
+            d = read_json(p)
+            cf[sched] = {
+                "mean_pairwise_lpips": d.get("mean_pairwise_lpips"),
+                "bootstrap_95ci": d.get("bootstrap_95ci"),
+            }
+    if cf:
+        followup["causal_forcing_init_diversity_lpips"] = cf
 
     payload = {
         "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -564,15 +575,22 @@ def main():
                 add("noema_latency_ms", name, f"{metric}_mean", stats["mean"],
                     block.get("trials"))
     for exp_name, exp in (followup or {}).items():
-        if exp_name == "curvature_causal_intervention":
-            continue  # structure differs; captured fully in the JSON payload
+        if not isinstance(exp, dict):
+            continue
+        for did, block in (exp.get("difference_in_differences") or {}).items():
+            for k, v in (block.get("normalized_aggregates") or {}).items():
+                add("noema_followup_" + exp_name, did, k, v, 944)
         for run, aggs in (exp.get("runs") or {}).items():
+            if isinstance(aggs, dict) and "normalized_aggregates" in aggs:
+                aggs = aggs["normalized_aggregates"]
             for k, v in (aggs or {}).items():
-                add("noema_followup_" + exp_name, run, k, v, 944)
+                if isinstance(v, (int, float)):
+                    add("noema_followup_" + exp_name, run, k, v, 944)
         for comp, block in (exp.get("comparisons") or {}).items():
             aggs = block.get("normalized_aggregates") if isinstance(block, dict) and "normalized_aggregates" in block else block
             for k, v in (aggs or {}).items():
-                add("noema_followup_" + exp_name, comp, k, v, 944)
+                if isinstance(v, (int, float)):
+                    add("noema_followup_" + exp_name, comp, k, v, 944)
     for name, block in training.items():
         add("training", name, "final_step", block["final_step"])
         add("training", name, "wallclock_hours", block["wallclock_hours_first_to_done"])

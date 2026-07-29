@@ -232,10 +232,19 @@ five-sample submission. Full numbers: `final_metrics.json` →
 Largest per-dimension movement at step 400: dynamic_degree −0.569 against
 broad small gains elsewhere (per-dimension deltas in the JSON/CSV).
 
-**Experiment 1 — controlled curvature intervention: in progress** at report
-time (paired curved/rectified arms trained from identical raw AR teacher
-trajectories, 6,505 pairs, 1,000 steps each; diff-in-diff readout
-`curvature_causal_effect` to be appended when the chain completes).
+**Experiment 1 — controlled curvature intervention (completed):** paired
+curved/rectified arms trained from identical raw AR teacher trajectories
+(6,505 pairs, 48-step CFG sampling; rectified arm replaces only the three
+intermediate states with time-aware linear interpolation; both arms 1,000
+steps, identical everything else; audits pass). One-sample 16-dim VBench
+totals: curved all1 0.5624 / all4 0.6150; rectified all1 0.5642 / all4
+0.7435. Rectification gains: all1 +0.0017, all4 +0.1285 →
+`curvature_causal_effect = −0.1268` (quality −0.120, semantic −0.155).
+**The intervention does not support the paper's original curvature-causes-
+one-step-failure claim** — straightening helped few-step inference far more
+than one-step — and is reported as such; the paper's causal narrative is
+being revised to observational motivation. Full per-dimension deltas in
+`final_metrics.json` → `noema_followup_experiments.curvature_causal_intervention`.
 Follow-up execution notes: trajectory generation was fanned to 28 nodes with
 identical per-prompt seeding (byte-identical outputs to a single-node run);
 three code-level fixes were required and are in the repo history
