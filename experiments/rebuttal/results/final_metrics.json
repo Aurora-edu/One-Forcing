@@ -1,7 +1,7 @@
 {
-  "generated_utc": "2026-07-29T05:28:54Z",
+  "generated_utc": "2026-07-29T19:00:30Z",
   "git_branch": "review",
-  "git_commit": "cc31d55fbeb7c550d9be72d94cd98279558ab54d",
+  "git_commit": "37317379e8009e4f61f2e671ee156d47d98d1157",
   "deadline_clock": {
     "start_utc": "2026-07-26T02:57:09Z",
     "deadline_utc": "2026-07-28T02:57:09Z"
@@ -1286,6 +1286,142 @@
           0.720396091858546
         ]
       }
+    }
+  },
+  "reviewer_runbook_experiments": {
+    "qwen_matched_4step": {
+      "comparisons": {
+        "one_forcing_minus_self_forcing": {
+          "formula": "one_forcing_raw_noema_all4 - self_forcing_ema_all4_existing",
+          "normalized_aggregates": {
+            "quality_score": 0.0058679759766756545,
+            "semantic_score": -0.004155669526487715,
+            "total_score": 0.0038632468760430028
+          },
+          "scores": {
+            "aesthetic_quality": -0.008746018973729952,
+            "appearance_style": -0.005750868055555636,
+            "background_consistency": -0.02661959625953858,
+            "color": 0.015506470325747479,
+            "dynamic_degree": 0.20833333333333326,
+            "human_action": 0.039999999999999925,
+            "imaging_quality": 0.019326873590916338,
+            "motion_smoothness": 0.0007082230011193902,
+            "multiple_objects": 0.01981707317073178,
+            "object_class": -0.005537974683544333,
+            "overall_consistency": -0.014213286180009166,
+            "scene": 0.007994186046511698,
+            "spatial_relationship": -0.06518909329971745,
+            "subject_consistency": -0.011254193951996894,
+            "temporal_flickering": -0.011049998470381572,
+            "temporal_style": 0.002742343842983247
+          }
+        }
+      },
+      "pairing": {
+        "detected_gpu_count": 8,
+        "gpu_audit_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/audit/gpu_inventory.json",
+        "historical_num_rng_streams": 2,
+        "historical_prompt_sharding": "even_odd",
+        "initial_noise_seed_scope": "index_within_historical_even_odd_shard",
+        "manifest_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/manifests/qwen_self_forcing_two_stream_seed0.jsonl",
+        "manifest_sha256": "e50cae88b99692dd42a6d60ebe2a73fbba25b581f1f66421e651614f0aba96d0",
+        "num_prompts": 944,
+        "one_forcing_config_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/experiments/rebuttal/configs/eval_all4.yaml",
+        "one_forcing_export_intent_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/one_forcing_raw_noema_all4_qwen_historical_seed/videos/export.intent.json",
+        "one_forcing_export_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/one_forcing_raw_noema_all4_qwen_historical_seed/videos/export.done",
+        "process_seed": 0,
+        "prompt_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/manifests/vbench_prompts.txt",
+        "prompt_sha256": "d802b4830e9ea85550e5fad2e9f077d74f79fcfad60d0b56b1314a0f5b652dc8",
+        "qwen_rewrite_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/manifests/qwen_rewrites_official_order.txt",
+        "qwen_rewrite_sha256": "90dde244dc4bd613f52726c833f303e44254b410d386fe4f5faaa05c355756ac",
+        "rng_protocol": "self_forcing_two_shard_seed0",
+        "samples_per_prompt": 1,
+        "selected_gpu_indices": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "self_forcing_result_reused": true,
+        "self_forcing_video_audit_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/audit/self_forcing_existing_video_set.json",
+        "self_forcing_videos_reused": true,
+        "uses_all_detected_gpus": true
+      },
+      "protocol": "Only One-Forcing inference is executed. Its raw/no-EMA all4 samples use the same 944 original prompts, exact Qwen rewrites, one sample, and historical initial-noise seeds plus the two process-global seed-0 CUDA RNG streams used by the existing Self-Forcing videos. Those two global RNG streams are restored per record while work is distributed across every detected GPU. Existing Self-Forcing EMA videos and result JSON are audited and reused.",
+      "runs": {
+        "one_forcing_raw_noema_all4": {
+          "checkpoint_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/runs/rebuttal/train_4step_one_forcing_300/seed_0/checkpoint_model_000300/model.pt",
+          "export_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/one_forcing_raw_noema_all4_qwen_historical_seed/videos/export.done",
+          "normalized_aggregates": {
+            "quality_score": 0.8535405205784277,
+            "semantic_score": 0.7782019752063409,
+            "total_score": 0.8384728115040103
+          },
+          "protocol_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/one_forcing_raw_noema_all4_qwen_historical_seed/vbench/one_forcing_raw_noema_all4_qwen_historical_seed_protocol.json",
+          "result_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/qwen_matched_4step_all_gpu/one_forcing_raw_noema_all4_qwen_historical_seed/vbench/one_forcing_raw_noema_all4_qwen_historical_seed_eval_results.json",
+          "samples_per_prompt": 1,
+          "scores": {
+            "aesthetic_quality": 0.639159849894944,
+            "appearance_style": 0.19887326388888887,
+            "background_consistency": 0.9306938703670058,
+            "color": 0.8553212851405624,
+            "dynamic_degree": 0.9444444444444444,
+            "human_action": 0.95,
+            "imaging_quality": 0.7112298420139251,
+            "motion_smoothness": 0.9811256420039675,
+            "multiple_objects": 0.7774390243902439,
+            "object_class": 0.9485759493670886,
+            "overall_consistency": 0.2549446983843721,
+            "scene": 0.5399709302325582,
+            "spatial_relationship": 0.7432623044644375,
+            "subject_consistency": 0.9427697743470262,
+            "temporal_flickering": 0.9786667342217138,
+            "temporal_style": 0.24623260483145715
+          },
+          "use_ema": false,
+          "weight_source": "generator"
+        },
+        "self_forcing_ema_all4_existing": {
+          "normalized_aggregates": {
+            "quality_score": 0.847672544601752,
+            "semantic_score": 0.7823576447328286,
+            "total_score": 0.8346095646279673
+          },
+          "num_result_referenced_videos": 940,
+          "result_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/self_forcing_qwen/self_forcing_dmd_4step_qwenrewrite_vbench_full_eval_results.json",
+          "result_sha256": "f1f9867820b3091056026378d88756eeeb8823858b8f44c3c9efe6191dc199e6",
+          "reuse_existing_result": true,
+          "samples_per_prompt": 1,
+          "scores": {
+            "aesthetic_quality": 0.647905868868674,
+            "appearance_style": 0.2046241319444445,
+            "background_consistency": 0.9573134666265444,
+            "color": 0.8398148148148149,
+            "dynamic_degree": 0.7361111111111112,
+            "human_action": 0.91,
+            "imaging_quality": 0.6919029684230088,
+            "motion_smoothness": 0.9804174190028481,
+            "multiple_objects": 0.7576219512195121,
+            "object_class": 0.9541139240506329,
+            "overall_consistency": 0.2691579845643813,
+            "scene": 0.5319767441860465,
+            "spatial_relationship": 0.808451397764155,
+            "subject_consistency": 0.9540239682990231,
+            "temporal_flickering": 0.9897167326920954,
+            "temporal_style": 0.2434902609884739
+          },
+          "self_forcing_inference_executed": false,
+          "use_ema": true,
+          "weight_source": "generator_ema"
+        }
+      },
+      "schema_version": 3,
+      "status": "pass"
     }
   },
   "protocol_notes": [

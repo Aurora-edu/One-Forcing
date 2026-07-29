@@ -435,6 +435,17 @@ def main():
     if cf:
         followup["causal_forcing_init_diversity_lpips"] = cf
 
+    # ---- Reviewer runbook experiments (REVIEWER_EXPERIMENTS_RUNBOOK.md) ----
+    reviewer = {}
+    for key, rel in {
+        "qwen_matched_4step": "eval/reviewer/qwen_matched_4step_all_gpu/qwen_matched_4step_summary.json",
+        "dmd_only_step200_full16": "eval/reviewer/dmd_only_step200_full16/dmd_only_step200_full16_summary.json",
+        "curvature_cd_small": "eval/reviewer/curvature_cd_small/curvature_cd_small_summary.json",
+    }.items():
+        p = REPO / rel
+        if p.is_file():
+            reviewer[key] = read_json(p)
+
     payload = {
         "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_branch": branch,
@@ -484,6 +495,7 @@ def main():
         "latency_h200_21latents": latency,
         "noema_ablation": noema,
         "noema_followup_experiments": followup or None,
+        "reviewer_runbook_experiments": reviewer or None,
         "protocol_notes": [
             "EMA export bug fixed before official runs: EMA_FSDP.full_state_dict "
             "dropped all FSDP flat-wrapped block parameters; all official "
@@ -591,6 +603,23 @@ def main():
             for k, v in (aggs or {}).items():
                 if isinstance(v, (int, float)):
                     add("noema_followup_" + exp_name, comp, k, v, 944)
+    for exp_name, exp in (reviewer or {}).items():
+        if not isinstance(exp, dict):
+            continue
+        for run, block in (exp.get("runs") or {}).items():
+            aggs = block.get("normalized_aggregates") if isinstance(block, dict) else None
+            for k, v in (aggs or {}).items():
+                if isinstance(v, (int, float)):
+                    add("reviewer_" + exp_name, run, k, v, 944)
+        for comp, block in (exp.get("comparisons") or {}).items():
+            aggs = block.get("normalized_aggregates") if isinstance(block, dict) and "normalized_aggregates" in block else block
+            for k, v in (aggs or {}).items():
+                if isinstance(v, (int, float)):
+                    add("reviewer_" + exp_name, comp, k, v, 944)
+        for did, block in (exp.get("difference_in_differences") or {}).items():
+            for k, v in (block.get("normalized_aggregates") or {}).items():
+                if isinstance(v, (int, float)):
+                    add("reviewer_" + exp_name, did, k, v, 944)
     for name, block in training.items():
         add("training", name, "final_step", block["final_step"])
         add("training", name, "wallclock_hours", block["wallclock_hours_first_to_done"])
