@@ -47,7 +47,7 @@ bash experiments/rebuttal/run_curvature_cd_small.sh all \
   --data_path /path/to/shared_curvature_lmdb \
   --raw_checkpoint /path/to/raw_ar_model.pt \
   --output_root /path/to/curvature_cd_small \
-  --gpus 0,1,2,3,4,5,6,7 \
+  --gpus all \
   --full_info_path /path/to/VBench_full_info.json \
   --vbench_python /path/to/vbench/environment/bin/python \
   --python /path/to/causal_forcing/environment/bin/python
@@ -56,3 +56,7 @@ bash experiments/rebuttal/run_curvature_cd_small.sh all \
 Watch the live log and do not leave the training unattended before both arms
 have printed steps 1 through 10. Each step reports the exact adjacent pair,
 target type, loss, gradient norm, and duration.
+
+`--gpus all` is fail-closed: it records every physical GPU reported by
+`nvidia-smi`, refuses to overlap existing compute processes, and requires each
+arm's distributed world size to equal the detected GPU count.

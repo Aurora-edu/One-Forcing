@@ -14,6 +14,7 @@ CONTROLLED_FIELDS = (
     "data_path",
     "dataset_manifest_sha256",
     "seed",
+    "world_size",
     "framewise",
     "training_num_frames",
     "training_timesteps",
@@ -51,6 +52,7 @@ def main() -> None:
     parser.add_argument("--curved_done", required=True)
     parser.add_argument("--rectified_done", required=True)
     parser.add_argument("--output_path", required=True)
+    parser.add_argument("--gpu_audit", required=True)
     args = parser.parse_args()
 
     curved_path = Path(args.curved_done).resolve()
@@ -64,6 +66,18 @@ def main() -> None:
     }
     if mismatches:
         raise ValueError(f"Paired-arm controls do not match: {mismatches}")
+    gpu_audit_path = Path(args.gpu_audit).resolve()
+    gpu_audit = json.loads(gpu_audit_path.read_text(encoding="utf-8"))
+    detected_gpu_count = int(gpu_audit.get("detected_gpu_count", 0))
+    if (
+        gpu_audit.get("status") != "pass"
+        or gpu_audit.get("uses_all_detected_gpus") is not True
+        or detected_gpu_count < 1
+        or curved.get("world_size") != detected_gpu_count
+    ):
+        raise ValueError(
+            f"Curvature arms did not use every detected GPU: {gpu_audit_path}"
+        )
 
     output = {
         "schema_version": 1,
@@ -77,6 +91,9 @@ def main() -> None:
         "rectified_intervention": "rectified",
         "use_ema": False,
         "weight_source": "generator",
+        "gpu_audit_path": str(gpu_audit_path),
+        "detected_gpu_count": detected_gpu_count,
+        "uses_all_detected_gpus": True,
     }
     output_path = Path(args.output_path).resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)

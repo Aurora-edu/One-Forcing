@@ -24,6 +24,7 @@ Usage:
 Options:
   --dimensions CSV   Optional selected VBench dimensions. Omit for all 16.
   --samples_per_prompt N  Generated samples per prompt, from 1 to 5. Default: 5.
+  --extended_prompt_path PATH  Optional one-line-per-prompt conditioning rewrites.
   --require_no_ema   Reject --use_ema and audit raw generator provenance.
   --python PATH      Training/inference Python. Default: python.
 EOF
@@ -40,6 +41,7 @@ OUTPUT_ROOT=""
 GPUS=""
 VBENCH_PYTHON=""
 DIMENSIONS=""
+EXTENDED_PROMPT_PATH=""
 USE_EMA="0"
 REQUIRE_NO_EMA="0"
 SAMPLES_PER_PROMPT="5"
@@ -58,6 +60,7 @@ while [[ $# -gt 0 ]]; do
     --gpus) GPUS="$2"; shift 2 ;;
     --vbench_python) VBENCH_PYTHON="$2"; shift 2 ;;
     --dimensions) DIMENSIONS="$2"; shift 2 ;;
+    --extended_prompt_path) EXTENDED_PROMPT_PATH="$2"; shift 2 ;;
     --samples_per_prompt) SAMPLES_PER_PROMPT="$2"; shift 2 ;;
     --require_no_ema) REQUIRE_NO_EMA="1"; shift ;;
     --use_ema) USE_EMA="1"; shift ;;
@@ -97,6 +100,9 @@ PROMPT_PATH="$(realpath -m "${PROMPT_PATH}")"
 MANIFEST_PATH="$(realpath -m "${MANIFEST_PATH}")"
 FULL_INFO_PATH="$(realpath -m "${FULL_INFO_PATH}")"
 OUTPUT_ROOT="$(realpath -m "${OUTPUT_ROOT}")"
+if [[ -n "${EXTENDED_PROMPT_PATH}" ]]; then
+  EXTENDED_PROMPT_PATH="$(realpath -m "${EXTENDED_PROMPT_PATH}")"
+fi
 
 for path in "${CONFIG_PATH}" "${CHECKPOINT_PATH}" "${PROMPT_PATH}" \
   "${MANIFEST_PATH}" "${FULL_INFO_PATH}" "${VBENCH_PYTHON}"; do
@@ -105,6 +111,10 @@ for path in "${CONFIG_PATH}" "${CHECKPOINT_PATH}" "${PROMPT_PATH}" \
     exit 1
   fi
 done
+if [[ -n "${EXTENDED_PROMPT_PATH}" && ! -f "${EXTENDED_PROMPT_PATH}" ]]; then
+  echo "Extended prompt file not found: ${EXTENDED_PROMPT_PATH}" >&2
+  exit 1
+fi
 
 VIDEOS_DIR="${OUTPUT_ROOT}/videos"
 VBENCH_DIR="${OUTPUT_ROOT}/vbench"
@@ -121,6 +131,9 @@ INFER_CMD=(
   --num_output_frames 21
   --python "${PYTHON_BIN}"
 )
+if [[ -n "${EXTENDED_PROMPT_PATH}" ]]; then
+  INFER_CMD+=(--extended_prompt_path "${EXTENDED_PROMPT_PATH}")
+fi
 if [[ "${USE_EMA}" == "1" ]]; then
   INFER_CMD+=(--use_ema)
 fi

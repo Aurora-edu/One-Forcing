@@ -167,9 +167,21 @@ def load_manifest(path: str, dataset: TextDataset, prompt_path: str):
             output_name = str(record["output_name"])
             if os.path.basename(output_name) != output_name or not output_name.endswith(".mp4"):
                 raise ValueError(f"{path}:{line_number}: output_name must be a plain .mp4 filename")
-            expected_prompt = dataset[prompt_index]["prompts"]
+            expected_batch = dataset[prompt_index]
+            expected_prompt = expected_batch["prompts"]
             if record["prompt"] != expected_prompt:
                 raise ValueError(f"{path}:{line_number}: prompt text does not match prompt_index")
+            expected_extended_prompt = expected_batch.get("extended_prompts")
+            if expected_extended_prompt is not None:
+                if record.get("extended_prompt") != expected_extended_prompt:
+                    raise ValueError(
+                        f"{path}:{line_number}: extended_prompt does not match prompt_index"
+                    )
+            elif "extended_prompt" in record:
+                raise ValueError(
+                    f"{path}:{line_number}: manifest has extended_prompt but the "
+                    "dataset has no extended-prompt file"
+                )
             if record["prompt_file_sha256"] != prompt_file_sha256:
                 raise ValueError(
                     f"{path}:{line_number}: prompt_file_sha256 does not match {prompt_path}"
@@ -259,17 +271,6 @@ def main():
     parser.add_argument("--shard_index", type=int, default=0)
     parser.add_argument("--num_shards", type=int, default=1)
     parser.add_argument("--manifest_path", type=str, default="")
-    parser.add_argument(
-        "--rng_protocol",
-        type=str,
-        default="independent_record",
-        choices=["independent_record", "self_forcing_two_shard_seed0"],
-        help=(
-            "independent_record resets every manifest sample; "
-            "self_forcing_two_shard_seed0 reproduces the historical Self-Forcing "
-            "two-process seed-0 stream."
-        ),
-    )
     parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--prompt_embedding_cache_path", type=str, default="")
     parser.add_argument("--offload_generator_before_decode", action="store_true")
@@ -299,19 +300,6 @@ def main():
             f"--shard_index must be in [0, {args.num_shards - 1}], "
             f"got {args.shard_index}"
         )
-    if args.rng_protocol == "self_forcing_two_shard_seed0":
-        if not args.manifest_path:
-            raise ValueError(
-                "self_forcing_two_shard_seed0 requires an audited manifest"
-            )
-        if args.seed != 0 or args.num_shards != 2:
-            raise ValueError(
-                "self_forcing_two_shard_seed0 requires --seed 0 --num_shards 2"
-            )
-        if args.num_samples_per_prompt != 1:
-            raise ValueError(
-                "self_forcing_two_shard_seed0 requires one sample per prompt"
-            )
 
     config = load_config(args.config_path)
 
@@ -360,14 +348,6 @@ def main():
                 f"Output folder contains videos outside the selected manifest: "
                 f"{extra_names[:8]}"
             )
-        if (
-            args.rng_protocol == "self_forcing_two_shard_seed0"
-            and existing_names
-        ):
-            raise ValueError(
-                "Sequential Self-Forcing RNG protocol cannot resume with existing "
-                "videos; use a new empty output folder"
-            )
     else:
         num_prompts = min(args.limit, len(dataset)) if args.limit > 0 else len(dataset)
         all_records = [
@@ -384,30 +364,6 @@ def main():
         shard_index=args.shard_index,
         num_shards=args.num_shards,
     )
-    if args.rng_protocol == "self_forcing_two_shard_seed0":
-        if len(all_records) != 944:
-            raise ValueError(
-                "Historical Self-Forcing seed protocol requires exactly 944 records"
-            )
-        for position, record in enumerate(all_records):
-            expected = {
-                "prompt_index": position,
-                "sample_index": 0,
-                "seed": 0,
-                "rng_protocol": "self_forcing_two_shard_seed0",
-                "rng_shard_index": position % 2,
-                "rng_position_in_shard": position // 2,
-            }
-            mismatches = {
-                key: (record.get(key), value)
-                for key, value in expected.items()
-                if record.get(key) != value
-            }
-            if mismatches:
-                raise ValueError(
-                    f"Self-Forcing RNG manifest record {position} mismatch: {mismatches}"
-                )
-
     for record in records:
         idx = int(record["prompt_index"])
         sample_idx = int(record["sample_index"])
@@ -444,31 +400,23 @@ def main():
             print(f"Skipping existing {output_path}", flush=True)
             continue
 
-        # Historical Self-Forcing used two even/odd prompt processes, each seeded
-        # once with 0. Its initial noise and re-noising consume the process RNG
-        # sequentially. The default remains order-independent per-record RNG.
-        if args.rng_protocol == "independent_record":
-            set_seed(sample_seed)
+        # Reset both the private initial-noise generator and the process-global
+        # RNG used by intermediate re-noising. This makes every manifest record
+        # shard-order independent and exactly paired across model checkpoints.
+        set_seed(sample_seed)
         if args.offload_generator_before_decode:
             pipeline.text_encoder.to(device)
             pipeline.generator.to(device)
             torch.cuda.empty_cache()
 
-        if args.rng_protocol == "independent_record":
-            generator = torch.Generator(device=device)
-            generator.manual_seed(sample_seed)
-            sampled_noise = torch.randn(
-                [1, args.num_output_frames, 16, 60, 104],
-                device=device,
-                dtype=torch.bfloat16,
-                generator=generator,
-            )
-        else:
-            sampled_noise = torch.randn(
-                [1, args.num_output_frames, 16, 60, 104],
-                device=device,
-                dtype=torch.bfloat16,
-            )
+        generator = torch.Generator(device=device)
+        generator.manual_seed(sample_seed)
+        sampled_noise = torch.randn(
+            [1, args.num_output_frames, 16, 60, 104],
+            device=device,
+            dtype=torch.bfloat16,
+            generator=generator,
+        )
 
         video, latents = pipeline.inference(
             noise=sampled_noise,
@@ -529,14 +477,9 @@ def main():
                 "latent_frames_per_video": args.num_output_frames,
                 "rgb_frames_per_video": 1 + 4 * (args.num_output_frames - 1),
                 "fps": args.fps,
-                "rng_protocol": args.rng_protocol,
-                "process_seed": args.seed,
                 "seed_scope": (
                     "Each manifest seed controls both initial latent noise and "
                     "multi-step intermediate re-noising."
-                    if args.rng_protocol == "independent_record"
-                    else "Each even/odd shard process is seeded once with 0; initial "
-                    "noise and intermediate re-noising consume that process stream."
                 ),
             },
             fp,

@@ -401,6 +401,7 @@ def main() -> None:
         "data_path": str(data_path),
         "dataset_manifest_sha256": sha256_file(dataset_manifest_path),
         "seed": int(config.seed),
+        "world_size": world_size,
         "framewise": True,
         "training_num_frames": training_num_frames,
         "training_timesteps": ode_timesteps,

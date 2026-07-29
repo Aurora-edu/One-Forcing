@@ -11,7 +11,7 @@ Usage:
     --data_path PATH/shared_curvature_lmdb \
     --raw_checkpoint PATH/raw_ar_model.pt \
     --output_root PATH/curvature_cd_small \
-    --gpus 0,1,2,3,4,5,6,7 \
+    --gpus all \
     [--full_info_path PATH/VBench_full_info.json] \
     [--vbench_python PATH/vbench_python] \
     [--prompt_embedding_cache_path PATH/cache] \
@@ -41,7 +41,7 @@ shift
 DATA_PATH=""
 RAW_CHECKPOINT=""
 OUTPUT_ROOT=""
-GPUS=""
+GPUS="all"
 FULL_INFO_PATH=""
 VBENCH_PYTHON=""
 PROMPT_EMBEDDING_CACHE_PATH=""
@@ -66,17 +66,12 @@ case "${PHASE}" in
   preflight|train_curved|train_rectified|evaluate|summarize|all) ;;
   *) echo "Unknown phase: ${PHASE}" >&2; usage >&2; exit 1 ;;
 esac
-for value_name in DATA_PATH RAW_CHECKPOINT OUTPUT_ROOT GPUS; do
+for value_name in DATA_PATH RAW_CHECKPOINT OUTPUT_ROOT; do
   if [[ -z "${!value_name}" ]]; then
     echo "--${value_name,,} is required" >&2
     exit 1
   fi
 done
-if [[ ! "${GPUS}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-  echo "--gpus must be comma-separated non-negative integers" >&2
-  exit 1
-fi
-
 DATA_PATH="$(realpath -m "${DATA_PATH}")"
 RAW_CHECKPOINT="$(realpath -m "${RAW_CHECKPOINT}")"
 OUTPUT_ROOT="$(realpath -m "${OUTPUT_ROOT}")"
@@ -91,6 +86,16 @@ fi
 if [[ ! -f "${RAW_CHECKPOINT}" ]]; then
   echo "Raw initialization checkpoint not found: ${RAW_CHECKPOINT}" >&2
   exit 1
+fi
+mkdir -p "${OUTPUT_ROOT}/audit"
+if [[ "${PHASE}" == "preflight" || "${PHASE}" == "summarize" ]]; then
+  GPUS="$("${PYTHON_BIN}" "${SCRIPT_DIR}/resolve_all_gpus.py" \
+    --requested "${GPUS}" \
+    --output_path "${OUTPUT_ROOT}/audit/gpu_inventory.json")"
+else
+  GPUS="$("${PYTHON_BIN}" "${SCRIPT_DIR}/resolve_all_gpus.py" \
+    --requested "${GPUS}" --require_idle \
+    --output_path "${OUTPUT_ROOT}/audit/gpu_inventory.json")"
 fi
 if [[ -n "${PROMPT_EMBEDDING_CACHE_PATH}" ]]; then
   PROMPT_EMBEDDING_CACHE_PATH="$(realpath -m "${PROMPT_EMBEDDING_CACHE_PATH}")"
@@ -171,6 +176,7 @@ require_evaluation_inputs() {
   "${PYTHON_BIN}" "${SCRIPT_DIR}/audit_curvature_cd_arms.py" \
     --curved_done "${CURVED_DIR}/training.done" \
     --rectified_done "${RECTIFIED_DIR}/training.done" \
+    --gpu_audit "${OUTPUT_ROOT}/audit/gpu_inventory.json" \
     --output_path "${OUTPUT_ROOT}/audit/completed_arm_pairing.json"
   "${PYTHON_BIN}" "${SCRIPT_DIR}/audit_noema_checkpoint.py" \
     --checkpoint "${CURVED_CKPT}" --expected_step 300 \

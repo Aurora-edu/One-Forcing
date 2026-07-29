@@ -14,7 +14,7 @@ Usage:
     --manifest_path PATH/vbench_single_sample_seed0.jsonl \
     --full_info_path PATH/VBench_full_info.json \
     --output_root PATH/dmd_step200_full16 \
-    --gpus 0,1,2,3,4,5,6,7 \
+    --gpus all \
     --vbench_python PATH/vbench_python [--python PATH/python]
 
 Runs only the missing DMD-only condition. The reference Full step-200 result
@@ -31,7 +31,7 @@ PROMPT_PATH=""
 MANIFEST_PATH=""
 FULL_INFO_PATH=""
 OUTPUT_ROOT=""
-GPUS=""
+GPUS="all"
 VBENCH_PYTHON=""
 PYTHON_BIN="${PYTHON_BIN:-python}"
 while [[ $# -gt 0 ]]; do
@@ -50,14 +50,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 for value_name in DMD_CHECKPOINT REFERENCE_FULL_RESULT PROMPT_PATH MANIFEST_PATH \
-  FULL_INFO_PATH OUTPUT_ROOT GPUS VBENCH_PYTHON; do
+  FULL_INFO_PATH OUTPUT_ROOT VBENCH_PYTHON; do
   if [[ -z "${!value_name}" ]]; then echo "--${value_name,,} is required" >&2; exit 1; fi
 done
-if [[ ! "${GPUS}" =~ ^[0-9]+(,[0-9]+)*$ ]]; then
-  echo "--gpus must be comma-separated non-negative integers" >&2
-  exit 1
-fi
-
 DMD_CHECKPOINT="$(realpath -m "${DMD_CHECKPOINT}")"
 REFERENCE_FULL_RESULT="$(realpath -m "${REFERENCE_FULL_RESULT}")"
 PROMPT_PATH="$(realpath -m "${PROMPT_PATH}")"
@@ -71,6 +66,9 @@ for path in "${DMD_CHECKPOINT}" "${REFERENCE_FULL_RESULT}" "${PROMPT_PATH}" \
 done
 
 mkdir -p "${OUTPUT_ROOT}/audit"
+GPUS="$("${PYTHON_BIN}" "${SCRIPT_DIR}/resolve_all_gpus.py" \
+  --requested "${GPUS}" --require_idle \
+  --output_path "${OUTPUT_ROOT}/audit/gpu_inventory.json")"
 "${PYTHON_BIN}" "${SCRIPT_DIR}/audit_noema_checkpoint.py" \
   --checkpoint "${DMD_CHECKPOINT}" --expected_step 200 \
   --output_path "${OUTPUT_ROOT}/audit/dmd_step200_checkpoint.json"
@@ -100,4 +98,5 @@ RESULT_PATH="${OUTPUT_ROOT}/${NAME}/vbench/${NAME}_eval_results.json"
   --candidate_label dmd_only_step200 \
   --comparison_name full_minus_dmd \
   --comparison_direction reference_minus_candidate \
+  --gpu_audit "${OUTPUT_ROOT}/audit/gpu_inventory.json" \
   --output_path "${OUTPUT_ROOT}/dmd_only_step200_full16_summary.json"

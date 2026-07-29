@@ -80,6 +80,11 @@ def build_intent(args, gpus, selected_records):
     checkpoint_path = Path(args.checkpoint_path).resolve()
     prompt_path = Path(args.prompt_path).resolve()
     manifest_path = Path(args.manifest_path).resolve()
+    extended_prompt_path = (
+        Path(args.extended_prompt_path).resolve()
+        if args.extended_prompt_path
+        else None
+    )
     resolved_config = OmegaConf.to_yaml(
         load_config(str(config_path)),
         resolve=True,
@@ -97,6 +102,14 @@ def build_intent(args, gpus, selected_records):
         "checkpoint_mtime_ns": checkpoint_path.stat().st_mtime_ns,
         "prompt_path": str(prompt_path),
         "prompt_sha256": sha256_file(prompt_path),
+        "extended_prompt_path": (
+            str(extended_prompt_path) if extended_prompt_path is not None else None
+        ),
+        "extended_prompt_sha256": (
+            sha256_file(extended_prompt_path)
+            if extended_prompt_path is not None
+            else None
+        ),
         "manifest_path": str(manifest_path),
         "manifest_sha256": sha256_file(manifest_path),
         "selected_manifest_records": selected_records,

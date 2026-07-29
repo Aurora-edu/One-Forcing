@@ -63,6 +63,7 @@ def export_inputs(run: dict) -> dict:
         "schedule": intent.get("schedule"),
         "num_output_frames": intent.get("num_output_frames"),
         "selected_manifest_records": intent.get("selected_manifest_records"),
+        "num_shards": intent.get("num_shards"),
     }
 
 
@@ -79,6 +80,7 @@ def main() -> None:
         default="candidate_minus_reference",
     )
     parser.add_argument("--output_path", required=True)
+    parser.add_argument("--gpu_audit", required=True)
     args = parser.parse_args()
     if args.reference_label == args.candidate_label:
         raise ValueError("The two labels must be different")
@@ -87,6 +89,18 @@ def main() -> None:
     candidate = audit_result(args.candidate_label, Path(args.candidate_result).resolve())
     reference_inputs = export_inputs(reference)
     candidate_inputs = export_inputs(candidate)
+    gpu_audit_path = Path(args.gpu_audit).resolve()
+    gpu_audit = json.loads(gpu_audit_path.read_text(encoding="utf-8"))
+    detected_gpu_count = int(gpu_audit.get("detected_gpu_count", 0))
+    if (
+        gpu_audit.get("status") != "pass"
+        or gpu_audit.get("uses_all_detected_gpus") is not True
+        or detected_gpu_count < 1
+        or candidate_inputs["num_shards"] != detected_gpu_count
+    ):
+        raise ValueError(
+            f"DMD candidate did not use every detected GPU: {gpu_audit_path}"
+        )
     for field in (
         "manifest_sha256",
         "resolved_config_sha256",
@@ -128,6 +142,9 @@ def main() -> None:
             ],
             "reference_inputs": reference_inputs,
             "candidate_inputs": candidate_inputs,
+            "gpu_audit_path": str(gpu_audit_path),
+            "detected_gpu_count": detected_gpu_count,
+            "uses_all_detected_gpus": True,
         },
         "runs": {
             args.reference_label: reference,
