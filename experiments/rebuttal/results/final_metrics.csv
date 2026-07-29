@@ -375,6 +375,15 @@ reviewer_qwen_matched_4step,self_forcing_ema_all4_existing,total_score,0.83461,9
 reviewer_qwen_matched_4step,one_forcing_minus_self_forcing,quality_score,0.005868,944,0
 reviewer_qwen_matched_4step,one_forcing_minus_self_forcing,semantic_score,-0.004156,944,0
 reviewer_qwen_matched_4step,one_forcing_minus_self_forcing,total_score,0.003863,944,0
+reviewer_dmd_only_step200_full16,dmd_only_step200,quality_score,0.782931,944,0
+reviewer_dmd_only_step200_full16,dmd_only_step200,semantic_score,0.63192,944,0
+reviewer_dmd_only_step200_full16,dmd_only_step200,total_score,0.752729,944,0
+reviewer_dmd_only_step200_full16,full_step200,quality_score,0.832225,944,0
+reviewer_dmd_only_step200_full16,full_step200,semantic_score,0.689201,944,0
+reviewer_dmd_only_step200_full16,full_step200,total_score,0.80362,944,0
+reviewer_dmd_only_step200_full16,full_minus_dmd,quality_score,0.049294,944,0
+reviewer_dmd_only_step200_full16,full_minus_dmd,semantic_score,0.057281,944,0
+reviewer_dmd_only_step200_full16,full_minus_dmd,total_score,0.050891,944,0
 training,train_1step_one_forcing_600,final_step,600,,0
 training,train_1step_one_forcing_600,wallclock_hours,4.091,,0
 training,train_1step_one_forcing_600,mean_seconds_per_logged_iteration,23.676,,0
