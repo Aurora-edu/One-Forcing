@@ -254,7 +254,28 @@ the full-sequence teacher-forcing forward, since eager flex attention
 materializes a ~192 GiB score matrix; realpath-safe python wrappers for the
 venv interpreters).
 
-## 11. Sample sizes and pairing checklist (README §8)
+## 11. Reviewer runbook experiments (REVIEWER_EXPERIMENTS_RUNBOOK.md, order 3→2→1)
+
+**Prior item 3 — Qwen-matched four-step comparison (completed).** Only
+One-Forcing inference was executed (raw/no-EMA `generator` from the 4-step
+step-300 checkpoint, framewise all4, one sample, all 16 dimensions, all 8
+GPUs). The 944 existing Self-Forcing videos and their complete 16-dimension
+result were located on the original host
+(`/nfs/data/Causal_forcing/exports/self_forcing_dmd_4step_vbench_qwenrewrite_*`),
+transferred with symlink resolution, audited byte-for-byte against the
+historical two-stream seed-0 manifest (`self_forcing_inference_executed:
+false`), and reused unmodified. Normalized aggregates:
+One-Forcing raw all4 total 0.8385 (quality 0.8535, semantic 0.7782) vs
+existing Self-Forcing EMA all4 total 0.8346 (quality 0.8477, semantic
+0.7824); Δ(OF−SF) = +0.0039 total, +0.0059 quality, −0.0042 semantic.
+Full summary: `eval/reviewer/qwen_matched_4step_all_gpu/qwen_matched_4step_summary.json`
+(aggregated copy in `final_metrics.json` → `reviewer_runbook_experiments`).
+
+Prior items 2 (DMD-only step-200 full VBench) and 1 (controlled curvature,
+300-step arms) are running at report time and will be appended on
+completion.
+
+## 12. Sample sizes and pairing checklist (README §8)
 
 - [x] Full method seed 0 → 600; DMD-only seed 0 → 200; 4-step seed 0 → 300.
 - [x] All three runs tmux-launched via `launch_train.sh`, checked past
