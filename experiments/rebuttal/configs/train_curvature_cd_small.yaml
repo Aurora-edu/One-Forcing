@@ -1,0 +1,43 @@
+# Both paired arms use this exact config. Only --intervention changes.
+seed: 2026
+max_steps: 300
+batch_size: 1
+dataloader_num_workers: 0
+training_num_frames: 9
+
+mixed_precision: true
+gradient_checkpointing: true
+num_frame_per_block: 1
+
+lr: 2.0e-06
+beta1: 0.9
+beta2: 0.999
+weight_decay: 0.01
+max_grad_norm: 10.0
+target_ema_decay: 0.95
+
+sharding_strategy: full
+generator_fsdp_wrap_strategy: transformer
+generator_fsdp_transformer_modules:
+  - causal_wan_block
+generator_fsdp_min_num_params: 1000000
+generator_cpu_offload: false
+generator_fsdp_reduce_dtype: float32
+generator_fsdp_buffer_dtype: float32
+
+text_encoder_fsdp_wrap_strategy: size
+text_encoder_fsdp_min_num_params: 1000000
+text_encoder_cpu_offload: false
+text_encoder_fsdp_reduce_dtype: float32
+text_encoder_fsdp_buffer_dtype: float32
+prompt_embedding_cache_path: ""
+
+# One final checkpoint avoids two expensive full-state gathers during the run.
+checkpoint_interval: 300
+print_interval: 25
+gc_interval: 50
+
+model_kwargs:
+  timestep_shift: 5.0
+  local_attn_size: 21
+  sink_size: 0

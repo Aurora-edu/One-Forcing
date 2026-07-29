@@ -68,6 +68,7 @@ def validate_export(
     fps: int,
     limit: int = -1,
     expected_weight_source: str | None = None,
+    expected_rng_protocol: str | None = None,
 ):
     if expected_weight_source not in {None, "generator", "generator_ema"}:
         raise ValueError(f"Invalid expected_weight_source={expected_weight_source!r}")
@@ -110,6 +111,10 @@ def validate_export(
         if expected_weight_source is not None:
             checks["weight_source"] = expected_weight_source
             checks["use_ema"] = expected_weight_source == "generator_ema"
+        if expected_rng_protocol is not None:
+            checks["rng_protocol"] = expected_rng_protocol
+            if expected_rng_protocol == "self_forcing_two_shard_seed0":
+                checks["process_seed"] = 0
         mismatches = {
             key: (payload.get(key), expected)
             for key, expected in checks.items()
@@ -150,6 +155,10 @@ def validate_export(
     if expected_weight_source is not None:
         result["weight_source"] = expected_weight_source
         result["use_ema"] = expected_weight_source == "generator_ema"
+    if expected_rng_protocol is not None:
+        result["rng_protocol"] = expected_rng_protocol
+        if expected_rng_protocol == "self_forcing_two_shard_seed0":
+            result["process_seed"] = 0
     return result
 
 
@@ -177,6 +186,11 @@ def main():
         choices=["generator", "generator_ema"],
         required=True,
     )
+    parser.add_argument(
+        "--expected_rng_protocol",
+        choices=["independent_record", "self_forcing_two_shard_seed0"],
+        default=None,
+    )
     args = parser.parse_args()
 
     if args.num_shards < 1:
@@ -202,6 +216,7 @@ def main():
         fps=args.fps,
         limit=args.limit,
         expected_weight_source=args.expected_weight_source,
+        expected_rng_protocol=args.expected_rng_protocol,
     )
     done_path = output_folder / "export.done"
     atomic_write_json(done_path, payload)
