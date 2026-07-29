@@ -9,14 +9,15 @@ usage() {
 Usage:
   bash experiments/rebuttal/run_one_forcing_qwen_4step_vbench.sh \
     --one_forcing_checkpoint PATH/of4_step300/model.pt \
-    --qwen_pair_shard0 PATH/shard00_pairs.jsonl \
-    --qwen_pair_shard1 PATH/shard01_pairs.jsonl \
     --self_forcing_videos_path PATH/existing_sf_qwen_videos \
     --self_forcing_result PATH/existing_sf_eval_results.json \
-    --full_info_path PATH/VBench_full_info.json \
     --output_root PATH/qwen_matched_4step_all_gpu \
     --gpus all \
     --vbench_python PATH/vbench_python [--python PATH/python]
+
+The exact historical Qwen pair shards and VBench full-info metadata are bundled
+under experiments/rebuttal/assets/qwen_vbench. Optional --qwen_pair_shard0,
+--qwen_pair_shard1, and --full_info_path arguments may override those defaults.
 
 Only One-Forcing inference is executed. Existing Self-Forcing videos and their
 completed result are audited and reused; no Self-Forcing checkpoint is loaded.
@@ -29,11 +30,11 @@ EOF
 if [[ $# -eq 1 && ( "$1" == "-h" || "$1" == "--help" ) ]]; then usage; exit 0; fi
 
 ONE_FORCING_CHECKPOINT=""
-QWEN_PAIR_SHARD0=""
-QWEN_PAIR_SHARD1=""
+QWEN_PAIR_SHARD0="${SCRIPT_DIR}/assets/qwen_vbench/shard00_pairs.jsonl"
+QWEN_PAIR_SHARD1="${SCRIPT_DIR}/assets/qwen_vbench/shard01_pairs.jsonl"
 SELF_FORCING_VIDEOS_PATH=""
 SELF_FORCING_RESULT=""
-FULL_INFO_PATH=""
+FULL_INFO_PATH="${SCRIPT_DIR}/assets/qwen_vbench/VBench_full_info.json"
 OUTPUT_ROOT=""
 GPUS="all"
 VBENCH_PYTHON=""
@@ -54,9 +55,8 @@ while [[ $# -gt 0 ]]; do
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
-for value_name in ONE_FORCING_CHECKPOINT QWEN_PAIR_SHARD0 QWEN_PAIR_SHARD1 \
-  SELF_FORCING_VIDEOS_PATH SELF_FORCING_RESULT FULL_INFO_PATH OUTPUT_ROOT \
-  VBENCH_PYTHON; do
+for value_name in ONE_FORCING_CHECKPOINT SELF_FORCING_VIDEOS_PATH \
+  SELF_FORCING_RESULT OUTPUT_ROOT VBENCH_PYTHON; do
   if [[ -z "${!value_name}" ]]; then echo "--${value_name,,} is required" >&2; exit 1; fi
 done
 

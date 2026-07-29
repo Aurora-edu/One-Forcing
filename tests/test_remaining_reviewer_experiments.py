@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 import torch
 
@@ -16,6 +17,41 @@ from scripts.export_videos import (
     load_manifest,
     select_records_for_shard,
 )
+
+
+ASSET_ROOT = (
+    Path(__file__).resolve().parents[1]
+    / "experiments"
+    / "rebuttal"
+    / "assets"
+    / "qwen_vbench"
+)
+
+
+def test_bundled_qwen_vbench_assets_are_pinned():
+    expected_pairs = {
+        "shard00_pairs.jsonl": (
+            472,
+            "53e85750f9fec2ff0a1af9b1d8ac9adf3c9e6b69dbf69cf529d3b56be4017d7e",
+        ),
+        "shard01_pairs.jsonl": (
+            472,
+            "a9126faa105e2aeb976b352877576f75a97b57e6784c78cb20d3b8c1d5dbdbb6",
+        ),
+    }
+    for name, (expected_lines, expected_sha256) in expected_pairs.items():
+        path = ASSET_ROOT / name
+        assert len(path.read_text(encoding="utf-8").splitlines()) == expected_lines
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
+
+    full_info_path = ASSET_ROOT / "VBench_full_info.json"
+    assert (
+        hashlib.sha256(full_info_path.read_bytes()).hexdigest()
+        == "12d720a3f5ec60d7640edadd2272876056da098632171fc30356be25674c4deb"
+    )
+    full_info = json.loads(full_info_path.read_text(encoding="utf-8"))
+    assert len(full_info) == 946
+    assert len({record["prompt_en"] for record in full_info}) == 944
 
 
 def make_prompt_files(tmp_path, count=944):

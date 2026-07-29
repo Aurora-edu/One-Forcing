@@ -36,24 +36,26 @@ protocol.
 ```bash
 bash experiments/rebuttal/run_one_forcing_qwen_4step_vbench.sh \
   --one_forcing_checkpoint /path/to/of4/checkpoint_model_000300/model.pt \
-  --qwen_pair_shard0 /path/to/qwen/shard00_pairs.jsonl \
-  --qwen_pair_shard1 /path/to/qwen/shard01_pairs.jsonl \
   --self_forcing_videos_path /path/to/existing/self_forcing_qwen_videos \
   --self_forcing_result /path/to/existing/self_forcing_eval_results.json \
-  --full_info_path /path/to/VBench_full_info.json \
   --output_root /path/to/results/qwen_matched_4step_all_gpu \
   --gpus all \
   --vbench_python /path/to/pinned_vbench/bin/python \
   --python /path/to/one_forcing/bin/python
 ```
 
-Known shared paths, if mounted on the experiment host:
+The exact historical Qwen pairs and VBench prompt metadata are committed at:
 
 ```text
-/nfs/data/Causal_forcing/vbench/prompts/cf_dmd2v_r1w5_step1000_qwen_rewrite/shard00_pairs.jsonl
-/nfs/data/Causal_forcing/vbench/prompts/cf_dmd2v_r1w5_step1000_qwen_rewrite/shard01_pairs.jsonl
-/data/fengjiaqi/tools/VBench_full_info.json
+experiments/rebuttal/assets/qwen_vbench/shard00_pairs.jsonl
+experiments/rebuttal/assets/qwen_vbench/shard01_pairs.jsonl
+experiments/rebuttal/assets/qwen_vbench/VBench_full_info.json
 ```
+
+The runner uses them by default, so the experiment host does not need the
+original `/nfs/data` mount. Locate the already generated Self-Forcing videos
+and result JSON on that host and pass their actual local paths; do not rerun
+Self-Forcing.
 
 The audit requires exactly 944 existing Self-Forcing filenames matching the
 historical manifest and an existing complete 16-dimension result. One-Forcing
