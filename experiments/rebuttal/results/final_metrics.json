@@ -1,7 +1,7 @@
 {
-  "generated_utc": "2026-07-28T18:11:12Z",
+  "generated_utc": "2026-07-29T01:50:31Z",
   "git_branch": "review",
-  "git_commit": "68c3a452df0435c041c4630cd9e90b789ff7543e",
+  "git_commit": "eec24d08eddb28720316346f279294bee7c15179",
   "deadline_clock": {
     "start_utc": "2026-07-26T02:57:09Z",
     "deadline_utc": "2026-07-28T02:57:09Z"
@@ -983,6 +983,72 @@
             "std": 0.19589841105714212,
             "min": 1623.1866455078125,
             "max": 1623.8197021484375
+          }
+        }
+      }
+    }
+  },
+  "noema_followup_experiments": {
+    "step200_one_vs_four_step": {
+      "protocol": "Complete 16-dimension VBench scoring with one generated sample per prompt. This is intentionally not the official five-sample leaderboard protocol.",
+      "runs": {
+        "all1": {
+          "quality_score": 0.7773291333601409,
+          "semantic_score": 0.6444399508654243,
+          "total_score": 0.7507512968611976
+        },
+        "all4": {
+          "quality_score": 0.8058207077307825,
+          "semantic_score": 0.6645659380653305,
+          "total_score": 0.7775697537976921
+        }
+      },
+      "comparisons": {
+        "four_step_minus_one_step": {
+          "quality_score": 0.028491574370641648,
+          "semantic_score": 0.020125987199906215,
+          "total_score": 0.02681845693649454
+        }
+      }
+    },
+    "raw_step200_step400_full_vbench": {
+      "protocol": "Complete 16-dimension VBench scoring with one generated sample per prompt. This is intentionally not the official five-sample leaderboard protocol.",
+      "runs": {
+        "step200": {
+          "quality_score": 0.8322249601203029,
+          "semantic_score": 0.6892008755013681,
+          "total_score": 0.8036201431965159
+        },
+        "step400": {
+          "quality_score": 0.8374749141923533,
+          "semantic_score": 0.6867827847098058,
+          "total_score": 0.8073364882958438
+        }
+      },
+      "comparisons": {
+        "step400_minus_step200": {
+          "normalized_aggregates": {
+            "quality_score": 0.005249954072050422,
+            "semantic_score": -0.0024180907915622996,
+            "total_score": 0.0037163450993279445
+          },
+          "per_dimension": {
+            "aesthetic_quality": 0.025858763725526868,
+            "appearance_style": -0.010076388888888843,
+            "background_consistency": 0.021849237486373574,
+            "color": 0.027611988705738555,
+            "dynamic_degree": -0.5694444444444444,
+            "human_action": 0.010000000000000009,
+            "imaging_quality": 0.02351674015455818,
+            "motion_smoothness": 0.016227889089227343,
+            "multiple_objects": 0.022103658536585358,
+            "object_class": 0.012658227848101222,
+            "overall_consistency": -0.010627817082148716,
+            "scene": 0.0007267441860465129,
+            "spatial_relationship": -0.0031910614105292723,
+            "subject_consistency": 0.040720744083066474,
+            "temporal_flickering": 0.05060856587279072,
+            "temporal_style": -0.00991055183112624
           }
         }
       }

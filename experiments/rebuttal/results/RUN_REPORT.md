@@ -204,7 +204,48 @@ Observations (reported without alteration):
 No-EMA latency profiles match the EMA ones within noise (weights don't
 affect timing); see `final_metrics.json`.
 
-## 10. Sample sizes and pairing checklist (README §8)
+## 10. Ordered no-EMA follow-up experiments (NOEMA_FOLLOWUP.md)
+
+One generated sample per official prompt (944 videos/condition), all 16
+VBench dimensions, raw generator weights with fail-closed EMA provenance
+audits. Deliberately labeled a one-sample protocol, not an official
+five-sample submission. Full numbers: `final_metrics.json` →
+`noema_followup_experiments`.
+
+**Experiment 2 — raw step-200, framewise 1-step vs 4-step inference**
+(same checkpoint, same manifest):
+
+| Condition | Total | Quality | Semantic |
+|---|---:|---:|---:|
+| all1 | 0.7508 | 0.7773 | 0.6444 |
+| all4 | 0.7776 | 0.8058 | 0.6646 |
+| Δ (4-step − 1-step) | +0.0268 | +0.0285 | +0.0201 |
+
+**Experiment 3 — complete VBench, raw FFE step-200 vs step-400:**
+
+| Condition | Total | Quality | Semantic |
+|---|---:|---:|---:|
+| step 200 | 0.8036 | 0.8322 | 0.6892 |
+| step 400 | 0.8073 | 0.8375 | 0.6868 |
+| Δ (400 − 200) | +0.0037 | +0.0052 | −0.0024 |
+
+Largest per-dimension movement at step 400: dynamic_degree −0.569 against
+broad small gains elsewhere (per-dimension deltas in the JSON/CSV).
+
+**Experiment 1 — controlled curvature intervention: in progress** at report
+time (paired curved/rectified arms trained from identical raw AR teacher
+trajectories, 6,505 pairs, 1,000 steps each; diff-in-diff readout
+`curvature_causal_effect` to be appended when the chain completes).
+Follow-up execution notes: trajectory generation was fanned to 28 nodes with
+identical per-prompt seeding (byte-identical outputs to a single-node run);
+three code-level fixes were required and are in the repo history
+(device/dtype restoration after `assign=True` load; the repo's
+`CAUSAL_DISABLE_FLEX_ATTENTION=1` segmented-flash path + bf16 autocast for
+the full-sequence teacher-forcing forward, since eager flex attention
+materializes a ~192 GiB score matrix; realpath-safe python wrappers for the
+venv interpreters).
+
+## 11. Sample sizes and pairing checklist (README §8)
 
 - [x] Full method seed 0 → 600; DMD-only seed 0 → 200; 4-step seed 0 → 300.
 - [x] All three runs tmux-launched via `launch_train.sh`, checked past

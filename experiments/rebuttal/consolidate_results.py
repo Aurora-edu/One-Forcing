@@ -387,6 +387,43 @@ def main():
             },
         }
 
+    # ---- Optional ordered no-EMA follow-up experiments (NOEMA_FOLLOWUP.md) ----
+    followup = {}
+    p = REPO / "eval/followup/step200_1v4/step200_fourstep_comparison.json"
+    if p.is_file():
+        d = read_json(p)
+        followup["step200_one_vs_four_step"] = {
+            "protocol": d.get("protocol"),
+            "runs": {
+                name: block.get("normalized_aggregates")
+                for name, block in d.get("runs", {}).items()
+            },
+            "comparisons": {
+                name: block.get("normalized_aggregates")
+                for name, block in d.get("comparisons", {}).items()
+            },
+        }
+    p = REPO / "eval/followup/raw_step200_step400/raw_step200_step400_full_vbench.json"
+    if p.is_file():
+        d = read_json(p)
+        followup["raw_step200_step400_full_vbench"] = {
+            "protocol": d.get("protocol"),
+            "runs": {
+                name: block.get("normalized_aggregates")
+                for name, block in d.get("runs", {}).items()
+            },
+            "comparisons": {
+                name: {
+                    "normalized_aggregates": block.get("normalized_aggregates"),
+                    "per_dimension": block.get("scores"),
+                }
+                for name, block in d.get("comparisons", {}).items()
+            },
+        }
+    p = REPO / "eval/followup/curvature_control/curvature_causal_summary.json"
+    if p.is_file():
+        followup["curvature_causal_intervention"] = read_json(p)
+
     payload = {
         "generated_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "git_branch": branch,
@@ -435,6 +472,7 @@ def main():
         "fvd_prdc_256": fvd,
         "latency_h200_21latents": latency,
         "noema_ablation": noema,
+        "noema_followup_experiments": followup or None,
         "protocol_notes": [
             "EMA export bug fixed before official runs: EMA_FSDP.full_state_dict "
             "dropped all FSDP flat-wrapped block parameters; all official "
@@ -525,6 +563,16 @@ def main():
             for metric, stats in block["summary_ms"].items():
                 add("noema_latency_ms", name, f"{metric}_mean", stats["mean"],
                     block.get("trials"))
+    for exp_name, exp in (followup or {}).items():
+        if exp_name == "curvature_causal_intervention":
+            continue  # structure differs; captured fully in the JSON payload
+        for run, aggs in (exp.get("runs") or {}).items():
+            for k, v in (aggs or {}).items():
+                add("noema_followup_" + exp_name, run, k, v, 944)
+        for comp, block in (exp.get("comparisons") or {}).items():
+            aggs = block.get("normalized_aggregates") if isinstance(block, dict) and "normalized_aggregates" in block else block
+            for k, v in (aggs or {}).items():
+                add("noema_followup_" + exp_name, comp, k, v, 944)
     for name, block in training.items():
         add("training", name, "final_step", block["final_step"])
         add("training", name, "wallclock_hours", block["wallclock_hours_first_to_done"])

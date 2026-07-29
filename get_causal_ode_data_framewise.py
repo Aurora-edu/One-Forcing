@@ -76,6 +76,9 @@ def main():
     state_dict = load_generator_state(args.generator_ckpt, use_ema=args.use_ema)
     model.load_state_dict(state_dict, strict=True, assign=True)
     del state_dict
+    # assign=True swaps in the checkpoint's CPU tensors; restore the device and
+    # dtype that init_model established (same pattern as scripts/export_videos.py).
+    model.to(device=device, dtype=torch.float32)
 
 
 
@@ -141,13 +144,20 @@ def main():
             timestep = t * \
                 torch.ones([1, 21], device=device, dtype=torch.float32)
             noisy_input.append(latents)
-            f_cond, x0_pred_cond = model(
-                latents, conditional_dict, timestep, clean_x = clean_latent
-            )
+            # bf16 autocast keeps the flash-attention path viable for the full
+            # 21-frame causal sequence (fp32 attention falls back to a naive
+            # score matrix that cannot fit in memory); scheduler math and the
+            # stored trajectory states remain fp32.
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                f_cond, x0_pred_cond = model(
+                    latents, conditional_dict, timestep, clean_x = clean_latent
+                )
 
-            f_uncond, x0_pred_uncond = model(
-                latents, unconditional_dict, timestep, clean_x = clean_latent
-            )
+                f_uncond, x0_pred_uncond = model(
+                    latents, unconditional_dict, timestep, clean_x = clean_latent
+                )
+            f_cond = f_cond.float()
+            f_uncond = f_uncond.float()
 
             flow_pred = f_uncond + args.guidance_scale * (
                 f_cond - f_uncond
