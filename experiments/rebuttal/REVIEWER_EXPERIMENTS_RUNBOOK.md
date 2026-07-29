@@ -17,20 +17,29 @@ do not reset, stash, or delete them; report the conflict.
 
 ## 1. Prior item 3: all-GPU Qwen-matched four-step comparison
 
-This reruns both video sets; it does not reuse historical Self-Forcing videos.
-One-Forcing loads the raw `generator` from the four-step step-300 checkpoint.
-Self-Forcing loads `generator_ema` from the released `self_forcing_dmd.pt`.
-Both methods share one manifest with 944 official prompts, the exact historical
-Qwen rewrites, one sample per prompt, and seed `prompt_index` (`0...943`). Every
-record resets both initial-noise and intermediate-re-noising RNGs, so results
-remain exactly paired regardless of the number of GPU shards.
+Only One-Forcing inference is run. It loads the raw `generator` from the
+four-step step-300 checkpoint. The already completed Self-Forcing EMA videos
+and their VBench result are passed as immutable inputs, audited, and reused;
+the Self-Forcing checkpoint is not loaded and no Self-Forcing video is
+regenerated.
+
+The historical Self-Forcing run used two even/odd prompt processes, each seeded
+once with 0. Its exporter used the sample index inside that even/odd shard as
+the private initial-latent seed; only the three-frame intermediate re-noising
+advanced the process-global seed-0 stream. The One-Forcing exporter reproduces
+both pieces and restores the exact global CUDA RNG state before every one of
+the 944 historical samples. It then distributes those records over every
+detected GPU. On 8 GPUs, each card evaluates 118 prompts while preserving both
+original streams. This is not the unrelated `seed=global_prompt_index`
+protocol.
 
 ```bash
 bash experiments/rebuttal/run_one_forcing_qwen_4step_vbench.sh \
   --one_forcing_checkpoint /path/to/of4/checkpoint_model_000300/model.pt \
-  --self_forcing_checkpoint /path/to/self_forcing_dmd.pt \
   --qwen_pair_shard0 /path/to/qwen/shard00_pairs.jsonl \
   --qwen_pair_shard1 /path/to/qwen/shard01_pairs.jsonl \
+  --self_forcing_videos_path /path/to/existing/self_forcing_qwen_videos \
+  --self_forcing_result /path/to/existing/self_forcing_eval_results.json \
   --full_info_path /path/to/VBench_full_info.json \
   --output_root /path/to/results/qwen_matched_4step_all_gpu \
   --gpus all \
@@ -46,9 +55,10 @@ Known shared paths, if mounted on the experiment host:
 /data/fengjiaqi/tools/VBench_full_info.json
 ```
 
-The released checkpoint must contain a non-empty `generator_ema`; the audit
-records its complete SHA256. Both conditions run framewise `all4`, all 16
-dimensions, and the repository-pinned VBench 0.1.5 environment. Result:
+The audit requires exactly 944 existing Self-Forcing filenames matching the
+historical manifest and an existing complete 16-dimension result. One-Forcing
+runs framewise `all4`, raw/no-EMA, one sample, all 16 dimensions, and uses all
+GPUs for generation and scoring. Result:
 
 ```text
 /path/to/results/qwen_matched_4step_all_gpu/qwen_matched_4step_summary.json

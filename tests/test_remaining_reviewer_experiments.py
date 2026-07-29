@@ -4,13 +4,18 @@ import json
 import torch
 
 from experiments.rebuttal.audit_ema_checkpoint import audit_checkpoint
+from experiments.rebuttal.make_self_forcing_seed0_manifest import build_records
 from experiments.rebuttal.merge_qwen_rewrite_shards import (
     load_pair_mapping,
     merge_in_prompt_order,
 )
 from experiments.rebuttal.resolve_all_gpus import resolve_requested
 from experiments.rebuttal.summarize_qwen_4step_comparison import audit_manifest
-from scripts.export_videos import load_manifest
+from scripts.export_videos import (
+    historical_self_forcing_random_shapes,
+    load_manifest,
+    select_records_for_shard,
+)
 
 
 def make_prompt_files(tmp_path, count=944):
@@ -83,16 +88,25 @@ def test_pair_shards_reject_duplicate_prompts(tmp_path):
         raise AssertionError("Duplicate prompt was accepted")
 
 
-def test_qwen_manifest_is_per_record_seeded_and_shard_independent(tmp_path):
+def test_qwen_manifest_matches_historical_two_stream_seed_zero(tmp_path):
     prompts, rewrites, prompt_path, rewrite_path = make_prompt_files(tmp_path)
     manifest_path = tmp_path / "manifest.jsonl"
-    records = make_manifest(prompts, rewrites, prompt_path, manifest_path)
+    records = build_records(prompt_path, rewrite_path)
+    manifest_path.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
     audit = audit_manifest(prompt_path, rewrite_path, manifest_path)
-    assert audit["base_seed"] == 0
-    assert audit["seed_formula"] == "base_seed + prompt_index"
-    assert audit["shard_order_independent"] is True
+    assert audit["process_seed"] == 0
+    assert audit["historical_num_rng_streams"] == 2
+    assert audit["historical_prompt_sharding"] == "even_odd"
+    for index, record in enumerate(records):
+        assert record["seed"] == index // 2
+        assert record["initial_noise_seed"] == index // 2
+        assert record["rng_shard_index"] == index % 2
+        assert record["rng_position_in_shard"] == index // 2
 
-    records[1]["seed"] = 0
+    records[1]["seed"] = 1
     manifest_path.write_text(
         "".join(json.dumps(record) + "\n" for record in records),
         encoding="utf-8",
@@ -102,7 +116,31 @@ def test_qwen_manifest_is_per_record_seeded_and_shard_independent(tmp_path):
     except ValueError as error:
         assert "not protocol matched" in str(error)
     else:
-        raise AssertionError("Incorrect per-record seed was accepted")
+        raise AssertionError("Non-historical seed was accepted")
+
+
+def test_eight_gpu_partition_preserves_two_historical_streams(tmp_path):
+    _, _, prompt_path, rewrite_path = make_prompt_files(tmp_path)
+    records = build_records(prompt_path, rewrite_path)
+    selected_indices = set()
+    for shard_index in range(8):
+        selected = select_records_for_shard(records, shard_index, 8)
+        assert len(selected) == 118
+        assert {record["rng_shard_index"] for record in selected} == {
+            shard_index % 2
+        }
+        assert [record["rng_position_in_shard"] for record in selected] == list(
+            range(shard_index // 2, 472, 4)
+        )
+        selected_indices.update(record["prompt_index"] for record in selected)
+    assert selected_indices == set(range(944))
+
+
+def test_historical_rng_schedule_matches_self_forcing_all4():
+    shapes = historical_self_forcing_random_shapes()
+    assert shapes == [(3, 16, 60, 104)] * 21
+    frame_equivalents = sum(shape[0] for shape in shapes)
+    assert frame_equivalents == 63
 
 
 def test_manifest_extended_prompts_must_match_dataset(tmp_path):

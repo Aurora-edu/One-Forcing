@@ -22,6 +22,12 @@ from utils.misc import set_seed
 from utils.prompt_embedding_cache import PromptEmbeddingLMDBCache
 
 
+HISTORICAL_SF_RNG_PROTOCOL = "self_forcing_two_shard_seed0"
+HISTORICAL_SF_NUM_STREAMS = 2
+HISTORICAL_SF_BLOCK_FRAMES = 3
+HISTORICAL_SF_DENOISING_STEPS = 4
+
+
 def sanitize_filename(text: str, max_length: int = 96) -> str:
     text = re.sub(r"[^\w\s-]", "", text, flags=re.UNICODE)
     text = re.sub(r"\s+", "_", text.strip())
@@ -211,6 +217,74 @@ def select_records_for_shard(records, shard_index: int, num_shards: int):
     return records[shard_index::num_shards]
 
 
+def historical_self_forcing_random_shapes(
+    num_output_frames: int = 21,
+) -> list[tuple[int, ...]]:
+    """Exact process-global CUDA-normal draws per historical SF all4 video.
+
+    Historical Self-Forcing generated the initial latent with a private
+    ``torch.Generator`` seeded by the sample's index inside its even/odd shard.
+    Only the intermediate re-noising below advanced the process-global RNG.
+    """
+    if num_output_frames != 21:
+        raise ValueError("Historical Self-Forcing matching requires 21 latent frames")
+    if num_output_frames % HISTORICAL_SF_BLOCK_FRAMES:
+        raise ValueError("Historical Self-Forcing frame count is not block aligned")
+    num_blocks = num_output_frames // HISTORICAL_SF_BLOCK_FRAMES
+    return [
+        (HISTORICAL_SF_BLOCK_FRAMES, 16, 60, 104)
+        for _ in range(num_blocks * (HISTORICAL_SF_DENOISING_STEPS - 1))
+    ]
+
+
+def validate_historical_self_forcing_manifest(records: list[dict]) -> None:
+    if len(records) != 944:
+        raise ValueError(
+            f"Historical Self-Forcing matching requires 944 records, found {len(records)}"
+        )
+    for index, record in enumerate(records):
+        expected = {
+            "prompt_index": index,
+            "sample_index": 0,
+            "seed": index // HISTORICAL_SF_NUM_STREAMS,
+            "initial_noise_seed": index // HISTORICAL_SF_NUM_STREAMS,
+            "rng_protocol": HISTORICAL_SF_RNG_PROTOCOL,
+            "rng_shard_index": index % HISTORICAL_SF_NUM_STREAMS,
+            "rng_position_in_shard": index // HISTORICAL_SF_NUM_STREAMS,
+        }
+        mismatches = {
+            key: (record.get(key), value)
+            for key, value in expected.items()
+            if record.get(key) != value
+        }
+        if mismatches:
+            raise ValueError(
+                f"Historical Self-Forcing manifest record {index} mismatch: {mismatches}"
+            )
+
+
+def build_historical_self_forcing_rng_states(
+    max_position: int,
+    *,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> tuple[list[torch.Tensor], str]:
+    """Replay SF's random draws once and retain the state before every sample."""
+    if max_position < 0:
+        raise ValueError("Historical RNG position must be non-negative")
+    base_state = torch.cuda.get_rng_state(device=device)
+    base_digest = hashlib.sha256(base_state.cpu().numpy().tobytes()).hexdigest()
+    states = []
+    shapes = historical_self_forcing_random_shapes()
+    with torch.no_grad():
+        for _ in range(max_position + 1):
+            states.append(torch.cuda.get_rng_state(device=device).cpu())
+            for shape in shapes:
+                discarded = torch.randn(shape, device=device, dtype=dtype)
+                del discarded
+    return states, base_digest
+
+
 @torch.no_grad()
 def stream_decode_to_video(vae, latents: torch.Tensor, output_path: str, fps: int):
     import imageio.v2 as imageio
@@ -271,6 +345,11 @@ def main():
     parser.add_argument("--shard_index", type=int, default=0)
     parser.add_argument("--num_shards", type=int, default=1)
     parser.add_argument("--manifest_path", type=str, default="")
+    parser.add_argument(
+        "--rng_protocol",
+        choices=["independent_record", HISTORICAL_SF_RNG_PROTOCOL],
+        default="independent_record",
+    )
     parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--prompt_embedding_cache_path", type=str, default="")
     parser.add_argument("--offload_generator_before_decode", action="store_true")
@@ -300,6 +379,21 @@ def main():
             f"--shard_index must be in [0, {args.num_shards - 1}], "
             f"got {args.shard_index}"
         )
+    if args.rng_protocol == HISTORICAL_SF_RNG_PROTOCOL:
+        if not args.manifest_path:
+            raise ValueError("Historical Self-Forcing matching requires a manifest")
+        if args.seed != 0 or args.num_samples_per_prompt != 1:
+            raise ValueError(
+                "Historical Self-Forcing matching requires seed 0 and one sample"
+            )
+        if args.num_shards < 2 or args.num_shards % HISTORICAL_SF_NUM_STREAMS:
+            raise ValueError(
+                "Historical two-stream RNG matching requires an even number of GPUs"
+            )
+        if args.limit > 0 or args.num_output_frames != 21:
+            raise ValueError(
+                "Historical Self-Forcing matching requires all 944 prompts and 21 frames"
+            )
 
     config = load_config(args.config_path)
 
@@ -364,6 +458,53 @@ def main():
         shard_index=args.shard_index,
         num_shards=args.num_shards,
     )
+    historical_rng_states = None
+    historical_rng_metadata = None
+    if args.rng_protocol == HISTORICAL_SF_RNG_PROTOCOL:
+        validate_historical_self_forcing_manifest(all_records)
+        stream_indices = {int(record["rng_shard_index"]) for record in records}
+        expected_stream = args.shard_index % HISTORICAL_SF_NUM_STREAMS
+        if stream_indices != {expected_stream}:
+            raise ValueError(
+                f"All-GPU shard {args.shard_index} mixes historical RNG streams: "
+                f"{sorted(stream_indices)}"
+            )
+        historical_positions = [
+            int(record["rng_position_in_shard"]) for record in records
+        ]
+        # The historical exporter called set_seed(0) once per even/odd
+        # process. Reset here after model construction so all physical GPUs
+        # start from that exact, model-independent process-global RNG state.
+        set_seed(0)
+        historical_rng_states, base_state_sha256 = (
+            build_historical_self_forcing_rng_states(
+                max(historical_positions),
+                device=device,
+                dtype=torch.bfloat16,
+            )
+        )
+        historical_rng_metadata = {
+            "rng_protocol": HISTORICAL_SF_RNG_PROTOCOL,
+            "process_seed": 0,
+            "initial_noise_seed_scope": "index_within_historical_even_odd_shard",
+            "rng_state_reset_per_record": True,
+            "historical_num_rng_streams": HISTORICAL_SF_NUM_STREAMS,
+            "historical_rng_stream": expected_stream,
+            "historical_positions": historical_positions,
+            "historical_base_cuda_rng_state_sha256": base_state_sha256,
+            "historical_state_schedule": {
+                "latent_frames": 21,
+                "block_frames": HISTORICAL_SF_BLOCK_FRAMES,
+                "denoising_steps": HISTORICAL_SF_DENOISING_STEPS,
+                "global_normal_draw_calls_per_video": len(
+                    historical_self_forcing_random_shapes()
+                ),
+                "global_normal_draw_frame_equivalents_per_video": sum(
+                    shape[0] * shape[1] if len(shape) == 5 else shape[0]
+                    for shape in historical_self_forcing_random_shapes()
+                ),
+            },
+        }
     for record in records:
         idx = int(record["prompt_index"])
         sample_idx = int(record["sample_index"])
@@ -400,10 +541,13 @@ def main():
             print(f"Skipping existing {output_path}", flush=True)
             continue
 
-        # Reset both the private initial-noise generator and the process-global
-        # RNG used by intermediate re-noising. This makes every manifest record
-        # shard-order independent and exactly paired across model checkpoints.
-        set_seed(sample_seed)
+        if args.rng_protocol == HISTORICAL_SF_RNG_PROTOCOL:
+            position = int(record["rng_position_in_shard"])
+            torch.cuda.set_rng_state(historical_rng_states[position], device=device)
+        else:
+            # Reset both the private initial-noise generator and process-global
+            # intermediate re-noising RNG for an independent manifest record.
+            set_seed(sample_seed)
         if args.offload_generator_before_decode:
             pipeline.text_encoder.to(device)
             pipeline.generator.to(device)
@@ -460,9 +604,7 @@ def main():
             f"export.shard_{args.shard_index:02d}_of_{args.num_shards:02d}.done"
         )
     done_path = os.path.join(args.output_folder, done_name)
-    with open(done_path, "w", encoding="utf-8") as fp:
-        json.dump(
-            {
+    done_payload = {
                 "checkpoint_path": os.path.abspath(args.checkpoint_path),
                 "weight_source": "generator_ema" if args.use_ema else "generator",
                 "use_ema": bool(args.use_ema),
@@ -478,14 +620,18 @@ def main():
                 "rgb_frames_per_video": 1 + 4 * (args.num_output_frames - 1),
                 "fps": args.fps,
                 "seed_scope": (
-                    "Each manifest seed controls both initial latent noise and "
+                    "Each record uses the historical index-within-even/odd-shard "
+                    "private initial-noise seed and restores the historical "
+                    "process-global CUDA RNG state before intermediate re-noising."
+                    if historical_rng_metadata is not None
+                    else "Each manifest seed controls both initial latent noise and "
                     "multi-step intermediate re-noising."
                 ),
-            },
-            fp,
-            indent=2,
-            sort_keys=True,
-        )
+            }
+    if historical_rng_metadata is not None:
+        done_payload.update(historical_rng_metadata)
+    with open(done_path, "w", encoding="utf-8") as fp:
+        json.dump(done_payload, fp, indent=2, sort_keys=True)
         fp.write("\n")
     print(f"Wrote {done_path}", flush=True)
 
