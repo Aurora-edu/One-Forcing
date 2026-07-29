@@ -1,7 +1,7 @@
 {
-  "generated_utc": "2026-07-29T19:47:44Z",
+  "generated_utc": "2026-07-29T22:04:53Z",
   "git_branch": "review",
-  "git_commit": "c0edbf06cd238a4944c6d2cd766f9fc74381c849",
+  "git_commit": "d0abec6518e7d7dc567da9eb3abbefadab0f89b2",
   "deadline_clock": {
     "start_utc": "2026-07-26T02:57:09Z",
     "deadline_utc": "2026-07-28T02:57:09Z"
@@ -1556,6 +1556,224 @@
       },
       "schema_version": 1,
       "status": "pass",
+      "use_ema": false,
+      "weight_source": "generator"
+    },
+    "curvature_cd_small": {
+      "comparisons": {
+        "rectification_gain_all1": {
+          "formula": "rectified_all1 - curved_all1",
+          "normalized_aggregates": {
+            "quality_score": 0.002603433017878798,
+            "semantic_score": -0.08227000337125606,
+            "total_score": -0.01437125425994823
+          },
+          "scores": {
+            "aesthetic_quality": -0.026114006196298944,
+            "appearance_style": -0.0028489583333333734,
+            "background_consistency": 0.037507150339525785,
+            "color": -0.018965358877639615,
+            "dynamic_degree": -0.01388888888888884,
+            "human_action": -0.13999999999999999,
+            "imaging_quality": -0.04102796175209922,
+            "motion_smoothness": 0.0018145196552864507,
+            "multiple_objects": -0.04801829268292682,
+            "object_class": -0.12183544303797468,
+            "overall_consistency": -0.04108696871547288,
+            "scene": -0.04796511627906977,
+            "spatial_relationship": -0.153559995678007,
+            "subject_consistency": 0.042683371530277014,
+            "temporal_flickering": -0.005929926379833694,
+            "temporal_style": -0.027964929267764088
+          }
+        },
+        "rectification_gain_all4": {
+          "formula": "rectified_all4 - curved_all4",
+          "normalized_aggregates": {
+            "quality_score": 0.11455954630105858,
+            "semantic_score": 0.03934552661590074,
+            "total_score": 0.09951674236402697
+          },
+          "scores": {
+            "aesthetic_quality": 0.022074735933734435,
+            "appearance_style": -0.010206597222222197,
+            "background_consistency": 0.06296732702920604,
+            "color": 0.02437749637749609,
+            "dynamic_degree": 0.0,
+            "human_action": -0.050000000000000044,
+            "imaging_quality": 0.060250792834415035,
+            "motion_smoothness": 0.08088888451437903,
+            "multiple_objects": 0.0663109756097561,
+            "object_class": 0.11787974683544306,
+            "overall_consistency": 0.003185810020533947,
+            "scene": 0.0668604651162791,
+            "spatial_relationship": 0.1298651196358933,
+            "subject_consistency": 0.10192785090516221,
+            "temporal_flickering": 0.06679065340328827,
+            "temporal_style": 0.004174407273530967
+          }
+        }
+      },
+      "difference_in_differences": {
+        "curvature_causal_effect": {
+          "formula": "(rectified_all1 - curved_all1) - (rectified_all4 - curved_all4)",
+          "normalized_aggregates": {
+            "quality_score": -0.11195611328317978,
+            "semantic_score": -0.1216155299871568,
+            "total_score": -0.1138879966239752
+          },
+          "scores": {
+            "aesthetic_quality": -0.04818874213003338,
+            "appearance_style": 0.007357638888888823,
+            "background_consistency": -0.02546017668968026,
+            "color": -0.043342855255135704,
+            "dynamic_degree": -0.01388888888888884,
+            "human_action": -0.08999999999999994,
+            "imaging_quality": -0.10127875458651425,
+            "motion_smoothness": -0.07907436485909258,
+            "multiple_objects": -0.11432926829268292,
+            "object_class": -0.23971518987341772,
+            "overall_consistency": -0.044272778736006824,
+            "scene": -0.11482558139534887,
+            "spatial_relationship": -0.2834251153139003,
+            "subject_consistency": -0.059244479374885195,
+            "temporal_flickering": -0.07272057978312196,
+            "temporal_style": -0.032139336541295055
+          }
+        }
+      },
+      "protocol": "Complete 16-dimension VBench scoring with one generated sample per prompt. This is intentionally not the official five-sample leaderboard protocol.",
+      "runs": {
+        "curved_all1": {
+          "checkpoint_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/training/curved/checkpoint_model_000300/model.pt",
+          "export_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/curved_cd_all1_noema_seed0/videos/export.done",
+          "normalized_aggregates": {
+            "quality_score": 0.618641563039409,
+            "semantic_score": 0.36491446544435496,
+            "total_score": 0.5678961435203982
+          },
+          "protocol_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/curved_cd_all1_noema_seed0/vbench/curved_cd_all1_noema_seed0_protocol.json",
+          "result_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/curved_cd_all1_noema_seed0/vbench/curved_cd_all1_noema_seed0_eval_results.json",
+          "samples_per_prompt": 1,
+          "scores": {
+            "aesthetic_quality": 0.3871449260942398,
+            "appearance_style": 0.22314409722222223,
+            "background_consistency": 0.8554580865904342,
+            "color": 0.661403630482578,
+            "dynamic_degree": 1.0,
+            "human_action": 0.31,
+            "imaging_quality": 0.31290444846617255,
+            "motion_smoothness": 0.8742148074810037,
+            "multiple_objects": 0.051067073170731704,
+            "object_class": 0.1819620253164557,
+            "overall_consistency": 0.1947846522414556,
+            "scene": 0.07412790697674419,
+            "spatial_relationship": 0.17955003917100643,
+            "subject_consistency": 0.6695106200770369,
+            "temporal_flickering": 0.9358165404126538,
+            "temporal_style": 0.17984035193920136
+          },
+          "use_ema": false,
+          "weight_source": "generator"
+        },
+        "curved_all4": {
+          "checkpoint_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/training/curved/checkpoint_model_000300/model.pt",
+          "export_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/curved_cd_all4_noema_seed0/videos/export.done",
+          "normalized_aggregates": {
+            "quality_score": 0.6391708381881995,
+            "semantic_score": 0.5011390698039645,
+            "total_score": 0.6115644845113526
+          },
+          "protocol_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/curved_cd_all4_noema_seed0/vbench/curved_cd_all4_noema_seed0_protocol.json",
+          "result_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/curved_cd_all4_noema_seed0/vbench/curved_cd_all4_noema_seed0_eval_results.json",
+          "samples_per_prompt": 1,
+          "scores": {
+            "aesthetic_quality": 0.5398721403332167,
+            "appearance_style": 0.22015104166666669,
+            "background_consistency": 0.8172828319460846,
+            "color": 0.656350371850372,
+            "dynamic_degree": 0.9861111111111112,
+            "human_action": 0.64,
+            "imaging_quality": 0.47779554044109995,
+            "motion_smoothness": 0.8599864524172314,
+            "multiple_objects": 0.19740853658536586,
+            "object_class": 0.4509493670886076,
+            "overall_consistency": 0.23226202952284966,
+            "scene": 0.19840116279069767,
+            "spatial_relationship": 0.2898395030094061,
+            "subject_consistency": 0.7117634285648011,
+            "temporal_flickering": 0.8890276275335574,
+            "temporal_style": 0.2278396038711071
+          },
+          "use_ema": false,
+          "weight_source": "generator"
+        },
+        "rectified_all1": {
+          "checkpoint_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/training/rectified/checkpoint_model_000300/model.pt",
+          "export_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/rectified_cd_all1_noema_seed0/videos/export.done",
+          "normalized_aggregates": {
+            "quality_score": 0.6212449960572878,
+            "semantic_score": 0.2826444620730989,
+            "total_score": 0.55352488926045
+          },
+          "protocol_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/rectified_cd_all1_noema_seed0/vbench/rectified_cd_all1_noema_seed0_protocol.json",
+          "result_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/rectified_cd_all1_noema_seed0/vbench/rectified_cd_all1_noema_seed0_eval_results.json",
+          "samples_per_prompt": 1,
+          "scores": {
+            "aesthetic_quality": 0.36103091989794084,
+            "appearance_style": 0.22029513888888885,
+            "background_consistency": 0.89296523692996,
+            "color": 0.6424382716049384,
+            "dynamic_degree": 0.9861111111111112,
+            "human_action": 0.17,
+            "imaging_quality": 0.27187648671407333,
+            "motion_smoothness": 0.8760293271362901,
+            "multiple_objects": 0.003048780487804878,
+            "object_class": 0.060126582278481014,
+            "overall_consistency": 0.15369768352598273,
+            "scene": 0.02616279069767442,
+            "spatial_relationship": 0.02599004349299945,
+            "subject_consistency": 0.7121939916073139,
+            "temporal_flickering": 0.9298866140328201,
+            "temporal_style": 0.15187542267143728
+          },
+          "use_ema": false,
+          "weight_source": "generator"
+        },
+        "rectified_all4": {
+          "checkpoint_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/training/rectified/checkpoint_model_000300/model.pt",
+          "export_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/rectified_cd_all4_noema_seed0/videos/export.done",
+          "normalized_aggregates": {
+            "quality_score": 0.7537303844892581,
+            "semantic_score": 0.5404845964198652,
+            "total_score": 0.7110812268753796
+          },
+          "protocol_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/rectified_cd_all4_noema_seed0/vbench/rectified_cd_all4_noema_seed0_protocol.json",
+          "result_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/reviewer/curvature_cd_small/vbench/rectified_cd_all4_noema_seed0/vbench/rectified_cd_all4_noema_seed0_eval_results.json",
+          "samples_per_prompt": 1,
+          "scores": {
+            "aesthetic_quality": 0.5619468762669512,
+            "appearance_style": 0.2099444444444445,
+            "background_consistency": 0.8802501589752907,
+            "color": 0.6807278682278681,
+            "dynamic_degree": 0.9861111111111112,
+            "human_action": 0.59,
+            "imaging_quality": 0.538046333275515,
+            "motion_smoothness": 0.9408753369316104,
+            "multiple_objects": 0.26371951219512196,
+            "object_class": 0.5688291139240507,
+            "overall_consistency": 0.2354478395433836,
+            "scene": 0.26526162790697677,
+            "spatial_relationship": 0.4197046226452994,
+            "subject_consistency": 0.8136912794699633,
+            "temporal_flickering": 0.9558182809368456,
+            "temporal_style": 0.23201401114463807
+          },
+          "use_ema": false,
+          "weight_source": "generator"
+        }
+      },
+      "schema_version": 1,
       "use_ema": false,
       "weight_source": "generator"
     }

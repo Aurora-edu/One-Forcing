@@ -271,9 +271,43 @@ existing Self-Forcing EMA all4 total 0.8346 (quality 0.8477, semantic
 Full summary: `eval/reviewer/qwen_matched_4step_all_gpu/qwen_matched_4step_summary.json`
 (aggregated copy in `final_metrics.json` → `reviewer_runbook_experiments`).
 
-Prior items 2 (DMD-only step-200 full VBench) and 1 (controlled curvature,
-300-step arms) are running at report time and will be appended on
-completion.
+**Prior item 2 — DMD-only step-200 complete 16-dimension VBench (completed).**
+Raw/no-EMA DMD-only step-200 checkpoint, one sample per prompt, the exact
+prompt/manifest files recorded in the reference run's `export.intent.json`,
+all 8 GPUs; final audit enforces no-EMA provenance, 16 complete dimensions,
+one-sample scoring, and manifest/config match. Normalized aggregates:
+full method 0.8036 vs DMD-only 0.7527 → adversarial branch **+0.0509 total
+(+0.0493 quality, +0.0573 semantic)** on the complete dimension set,
+corroborating the 7-dimension pairing in §4/§9. Summary:
+`eval/reviewer/dmd_only_step200_full16/dmd_only_step200_full16_summary.json`.
+
+**Prior item 1 — controlled curvature experiment, cd_small (completed).**
+Paired 300-step arms from the same audited trajectory LMDB, identical
+everything except the three interior ODE states (curved vs time-linearized);
+both arms trained sequentially in tmux (curved first; each watched through
+steps 1-10 with finite losses; `world_size: 8` = detected GPU count
+recorded in both `run.intent.json` files). Evaluation raw/no-EMA, one
+sample, 16 dimensions for all1 and all4 (the four conditions were executed
+concurrently on four identical 8×H200 nodes using byte-identical
+`run_vbench_condition.sh` invocations — an operator-authorized scheduling
+change only). Pre-registered readouts (normalized totals):
+`rectification_gain_all1` (primary) = **−0.0144** (quality +0.0026,
+semantic −0.0823); `rectification_gain_all4` (aligned negative control) =
++0.0995; `curvature_causal_effect` (DiD) = **−0.1139** (quality −0.1120,
+semantic −0.1216). This replicates, at a 300-step budget, the earlier
+1,000-step intervention (§10 follow-ups: DiD −0.1268): straightening the
+teacher trajectories does not preferentially help one-step inference, so
+the paper's original curvature-causes-one-step-failure claim remains
+unsupported and the revised observational framing stands. Summary:
+`eval/reviewer/curvature_cd_small/curvature_cd_small_summary.json`.
+
+Runbook execution notes: `origin/review` HEAD at experiment start was
+`37317379e8009e4f61f2e671ee156d47d98d1157`; every GPU phase ran with
+`--gpus all` resolved to all eight detected H200s on idle exclusive nodes;
+every task ran inside tmux. The Self-Forcing Qwen artifacts on the source
+host were symlink farms — the first transfer produced dangling links that
+the audit correctly rejected; re-transfer with symlink resolution fixed
+this (no Self-Forcing regeneration at any point).
 
 ## 12. Sample sizes and pairing checklist (README §8)
 
