@@ -1,0 +1,136 @@
+{
+  "generated_utc": "2026-07-30T05:37:55Z",
+  "ablation": "20-second rollouts, attention-sink 2x2 grid (sink_size 0 vs 3) for official Self-Forcing and One-Forcing checkpoints",
+  "protocol": {
+    "evaluation": "standard VBench 16-dimension aggregation on 20-second videos (single generation seed)",
+    "num_prompts": 944,
+    "samples_per_prompt": 1,
+    "generation_seed_base": 0,
+    "inference_schedule": "FFE: 4 denoising steps for the first latent block, then 1 step per subsequent block",
+    "shared_prompts_and_extended_prompts_with_existing_arms": true,
+    "weights": "each release's official convention: Self-Forcing EMA (release ships generator_ema only), One-Forcing raw/no-EMA",
+    "new_sink3_self_forcing_rollout": "60-second (241-latent) sink-3 rollout, first 321 frames cropped -- byte-identical protocol to the existing One-Forcing sink-3 arm",
+    "new_nosink_one_forcing_rollout": "direct 20-second (81-latent) rollout; causally identical to cropping a 60-second no-sink rollout at the same seed"
+  },
+  "conditions": {
+    "one_forcing_sink3": {
+      "source": "existing vbench_20s_self_vs_one_seed0.json",
+      "per_dimension": {
+        "subject_consistency": 0.8560310276,
+        "background_consistency": 0.9192174424,
+        "temporal_flickering": 0.9782542003,
+        "motion_smoothness": 0.9704086665,
+        "dynamic_degree": 0.9583333333,
+        "aesthetic_quality": 0.6115037664,
+        "imaging_quality": 0.6231722585,
+        "object_class": 0.9224683544,
+        "multiple_objects": 0.7118902439,
+        "human_action": 0.94,
+        "color": 0.8055524502,
+        "spatial_relationship": 0.7659253228,
+        "scene": 0.4723837209,
+        "appearance_style": 0.20728466,
+        "temporal_style": 0.2392445227,
+        "overall_consistency": 0.2518978648
+      },
+      "official_normalized": {
+        "quality_score": 0.8129591981,
+        "semantic_score": 0.7549821561,
+        "total_score": 0.8013637897
+      }
+    },
+    "one_forcing_nosink": {
+      "source": "this run",
+      "per_dimension": {
+        "subject_consistency": 0.8327336409300589,
+        "background_consistency": 0.8985033744989439,
+        "temporal_flickering": 0.9815570035089856,
+        "motion_smoothness": 0.9719301249245871,
+        "dynamic_degree": 0.9027777777777778,
+        "aesthetic_quality": 0.568117098462197,
+        "imaging_quality": 0.61328105465857,
+        "object_class": 0.8742088607594937,
+        "multiple_objects": 0.6867378048780488,
+        "human_action": 0.93,
+        "color": 0.7313870868087735,
+        "spatial_relationship": 0.729189004124254,
+        "scene": 0.5094476744186046,
+        "temporal_style": 0.23768811345100402,
+        "appearance_style": 0.2164166666666667,
+        "overall_consistency": 0.25303501547664725
+      },
+      "official_normalized": {
+        "quality_score": 0.7941496379353954,
+        "semantic_score": 0.7418377937489765,
+        "total_score": 0.7836872690981116
+      }
+    },
+    "self_forcing_nosink": {
+      "source": "existing vbench_20s_self_vs_one_seed0.json",
+      "per_dimension": {
+        "subject_consistency": 0.8792942835,
+        "background_consistency": 0.9163943978,
+        "temporal_flickering": 0.9907821635,
+        "motion_smoothness": 0.9787621208,
+        "dynamic_degree": 0.6805555556,
+        "aesthetic_quality": 0.5952794023,
+        "imaging_quality": 0.6397315157,
+        "object_class": 0.8900316456,
+        "multiple_objects": 0.6806402439,
+        "human_action": 0.92,
+        "color": 0.8600247142,
+        "spatial_relationship": 0.8159000591,
+        "scene": 0.53125,
+        "appearance_style": 0.213400106,
+        "temporal_style": 0.2409928137,
+        "overall_consistency": 0.2703120282
+      },
+      "official_normalized": {
+        "quality_score": 0.804854932,
+        "semantic_score": 0.7737861085,
+        "total_score": 0.7986411673
+      }
+    },
+    "self_forcing_sink3": {
+      "source": "this run",
+      "per_dimension": {
+        "subject_consistency": 0.6714263324403824,
+        "background_consistency": 0.839112636654876,
+        "temporal_flickering": 0.973319544399486,
+        "motion_smoothness": 0.9367806195068246,
+        "dynamic_degree": 0.8333333333333334,
+        "aesthetic_quality": 0.47459832795204654,
+        "imaging_quality": 0.515884728469717,
+        "object_class": 0.6052215189873418,
+        "multiple_objects": 0.3955792682926829,
+        "human_action": 0.91,
+        "color": 0.7517742508813937,
+        "spatial_relationship": 0.4472163529057014,
+        "scene": 0.49200581395348836,
+        "temporal_style": 0.23169738844037055,
+        "appearance_style": 0.21990972222222224,
+        "overall_consistency": 0.2558450369584945
+      },
+      "official_normalized": {
+        "quality_score": 0.6960281570280742,
+        "semantic_score": 0.6463478329092074,
+        "total_score": 0.6860920922043008
+      }
+    }
+  },
+  "totals_grid": {
+    "one_forcing": {
+      "nosink": 0.7836872690981116,
+      "sink3": 0.8013637897
+    },
+    "self_forcing": {
+      "nosink": 0.7986411673,
+      "sink3": 0.6860920922043008
+    }
+  },
+  "observations": [
+    "sink_size=3 helps One-Forcing at 20s (+0.0177 total) but severely degrades Self-Forcing (-0.1125), which was neither trained nor released with an attention sink.",
+    "The fairest same-configuration pairing is each method at its own released/best setting: One-Forcing sink-3 0.8014 vs Self-Forcing no-sink 0.7986 (+0.0028).",
+    "Imposing One-Forcing's sink on Self-Forcing is mechanically 'matched' but not method-fair; the full grid is disclosed so readers can choose either reading."
+  ]
+}
