@@ -181,6 +181,12 @@ def main():
     parser.add_argument("--offload_generator_before_decode", action="store_true")
     parser.add_argument("--streaming_decode", action="store_true")
     parser.add_argument("--python", default=sys.executable)
+    parser.add_argument(
+        "--launch_delay_seconds",
+        type=float,
+        default=0.0,
+        help="Optional stagger between shard launches; 0 disables the delay.",
+    )
     args = parser.parse_args()
 
     if args.num_output_frames < 1 or args.fps < 1:
@@ -214,6 +220,8 @@ def main():
     children = []
     try:
         for shard_index, gpu in enumerate(gpus):
+            if shard_index and args.launch_delay_seconds > 0:
+                time.sleep(args.launch_delay_seconds)
             log_path = output_folder / (
                 f"export.shard_{shard_index:02d}_of_{len(gpus):02d}.log"
             )

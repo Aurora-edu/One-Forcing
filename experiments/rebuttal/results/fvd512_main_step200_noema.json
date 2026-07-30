@@ -1,0 +1,28 @@
+{
+  "bootstrap": null,
+  "fake_manifest_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/fvd_512/real_extra256/generation_manifest_combined.jsonl",
+  "fake_videos_dirs": [
+    "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/fvd_noema/main_step200",
+    "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/fvd_512/main_extra256"
+  ],
+  "feature_dimension": 400,
+  "feature_distribution_metrics": {
+    "coverage": 0.724609375,
+    "density": 0.47382812500000004,
+    "nearest_k": 5,
+    "precision": 0.63671875,
+    "recall": 0.6875
+  },
+  "fvd": 692.831323768457,
+  "i3d_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/third_party/fvd_i3d/i3d_torchscript.pt",
+  "metric": "FVD-I3D",
+  "num_fake_videos": 512,
+  "num_real_videos": 512,
+  "num_sampled_frames": 16,
+  "real_manifest_path": "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/fvd_512/real_extra256/reference_manifest_combined.jsonl",
+  "real_videos_dirs": [
+    "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/fvd/real_seed0",
+    "/mnt/lustre/lusasias2/yuanhao_arena_ai/One-Forcing/eval/fvd_512/real_extra256"
+  ],
+  "schema_version": 2
+}
