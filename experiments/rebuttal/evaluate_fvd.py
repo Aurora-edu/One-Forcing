@@ -12,8 +12,25 @@ from scipy import linalg
 VIDEO_SUFFIXES = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
 
 
-def list_videos(path, limit):
-    videos = sorted(item for item in Path(path).iterdir() if item.suffix.lower() in VIDEO_SUFFIXES)
+def list_videos(paths, limit):
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    videos = []
+    names = {}
+    for directory in paths:
+        directory = Path(directory)
+        if not directory.is_dir():
+            raise FileNotFoundError(f"Video directory does not exist: {directory}")
+        for item in directory.iterdir():
+            if item.is_file() and item.suffix.lower() in VIDEO_SUFFIXES:
+                if item.name in names:
+                    raise ValueError(
+                        f"Duplicate video filename {item.name!r} in "
+                        f"{names[item.name].parent} and {directory}"
+                    )
+                names[item.name] = item
+                videos.append(item)
+    videos.sort(key=lambda item: item.name)
     if limit > 0:
         videos = videos[:limit]
     return videos
@@ -190,8 +207,18 @@ def main():
     parser = argparse.ArgumentParser(
         description="Compute I3D Fréchet Video Distance on decoded real and generated videos."
     )
-    parser.add_argument("--real_videos_dir", required=True)
-    parser.add_argument("--fake_videos_dir", required=True)
+    parser.add_argument(
+        "--real_videos_dir",
+        action="append",
+        required=True,
+        help="Real-video directory; repeat the flag to combine disjoint shards.",
+    )
+    parser.add_argument(
+        "--fake_videos_dir",
+        action="append",
+        required=True,
+        help="Fake-video directory; repeat the flag to combine disjoint shards.",
+    )
     parser.add_argument("--real_manifest_path", default="")
     parser.add_argument("--fake_manifest_path", default="")
     parser.add_argument("--i3d_path", required=True)
@@ -254,7 +281,7 @@ def main():
         nearest_k=args.nearest_k,
     )
     result = {
-        "schema_version": 1,
+        "schema_version": 2,
         "metric": "FVD-I3D",
         "fvd": score,
         "num_real_videos": len(real_paths),
@@ -262,6 +289,12 @@ def main():
         "num_sampled_frames": args.num_frames,
         "feature_dimension": int(real_features.shape[1]),
         "i3d_path": str(Path(args.i3d_path).resolve()),
+        "real_videos_dirs": [
+            str(Path(path).resolve()) for path in args.real_videos_dir
+        ],
+        "fake_videos_dirs": [
+            str(Path(path).resolve()) for path in args.fake_videos_dir
+        ],
         "real_manifest_path": (
             str(Path(args.real_manifest_path).resolve())
             if args.real_manifest_path
