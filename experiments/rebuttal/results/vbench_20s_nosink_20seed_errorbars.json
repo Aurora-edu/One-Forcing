@@ -1,0 +1,313 @@
+{
+  "generated_utc": "2026-07-30T19:48:17Z",
+  "study": "20-seed error-bar study: 20-second no-sink long rollouts, One-Forcing vs Self-Forcing",
+  "protocol": {
+    "num_prompts": 944,
+    "seeds_per_prompt": 20,
+    "videos_per_method": 18880,
+    "schedule": "FFE (4-step first block, then 1-step per frame)",
+    "sink_size": 0,
+    "local_attn_size": 21,
+    "checkpoints": {
+      "one_forcing": "released one_forcing.pt, raw/no-EMA",
+      "self_forcing": "released self_forcing_dmd.pt, EMA (only shipped weights)"
+    },
+    "scoring": "each seed scored as an independent 944-video 16-dim VBench run; statistics across 20 seed totals",
+    "seed_pairing": "identical seed manifest for both methods; samples 0-2 reuse the 3-sample manifest seeds, samples 3-19 use documented unique seeds",
+    "caveat": "Self-Forcing cell reflects the committed framewise rolling-window pipeline; the repository's earlier SF 20s figure (0.7986) came from an uncommitted generation path and is not reproduced by any committed configuration."
+  },
+  "statistics": {
+    "one_forcing": {
+      "total_score": {
+        "mean": 78.523,
+        "std": 0.235,
+        "ci95": 0.103,
+        "n": 20
+      },
+      "quality_score": {
+        "mean": 79.377,
+        "std": 0.231,
+        "ci95": 0.101,
+        "n": 20
+      },
+      "semantic_score": {
+        "mean": 75.106,
+        "std": 0.725,
+        "ci95": 0.318,
+        "n": 20
+      }
+    },
+    "self_forcing": {
+      "total_score": {
+        "mean": 69.077,
+        "std": 0.61,
+        "ci95": 0.267,
+        "n": 20
+      },
+      "quality_score": {
+        "mean": 69.982,
+        "std": 0.728,
+        "ci95": 0.319,
+        "n": 20
+      },
+      "semantic_score": {
+        "mean": 65.456,
+        "std": 0.537,
+        "ci95": 0.235,
+        "n": 20
+      }
+    },
+    "paired_gap_total_of_minus_sf": {
+      "mean": 9.446,
+      "std": 0.631,
+      "wins_of": 20,
+      "n": 20
+    }
+  },
+  "per_seed_totals": {
+    "one_forcing": [
+      {
+        "seed_index": 0,
+        "quality_score": 0.791719,
+        "semantic_score": 0.742542,
+        "total_score": 0.781883
+      },
+      {
+        "seed_index": 1,
+        "quality_score": 0.794111,
+        "semantic_score": 0.750597,
+        "total_score": 0.785408
+      },
+      {
+        "seed_index": 2,
+        "quality_score": 0.793482,
+        "semantic_score": 0.759954,
+        "total_score": 0.786776
+      },
+      {
+        "seed_index": 3,
+        "quality_score": 0.793468,
+        "semantic_score": 0.759235,
+        "total_score": 0.786622
+      },
+      {
+        "seed_index": 4,
+        "quality_score": 0.795005,
+        "semantic_score": 0.745366,
+        "total_score": 0.785077
+      },
+      {
+        "seed_index": 5,
+        "quality_score": 0.788735,
+        "semantic_score": 0.765768,
+        "total_score": 0.784141
+      },
+      {
+        "seed_index": 6,
+        "quality_score": 0.793759,
+        "semantic_score": 0.751784,
+        "total_score": 0.785364
+      },
+      {
+        "seed_index": 7,
+        "quality_score": 0.79636,
+        "semantic_score": 0.756456,
+        "total_score": 0.788379
+      },
+      {
+        "seed_index": 8,
+        "quality_score": 0.791104,
+        "semantic_score": 0.744298,
+        "total_score": 0.781743
+      },
+      {
+        "seed_index": 9,
+        "quality_score": 0.793832,
+        "semantic_score": 0.746775,
+        "total_score": 0.784421
+      },
+      {
+        "seed_index": 10,
+        "quality_score": 0.791211,
+        "semantic_score": 0.75031,
+        "total_score": 0.783031
+      },
+      {
+        "seed_index": 11,
+        "quality_score": 0.793787,
+        "semantic_score": 0.751724,
+        "total_score": 0.785374
+      },
+      {
+        "seed_index": 12,
+        "quality_score": 0.791415,
+        "semantic_score": 0.751824,
+        "total_score": 0.783497
+      },
+      {
+        "seed_index": 13,
+        "quality_score": 0.792238,
+        "semantic_score": 0.749723,
+        "total_score": 0.783735
+      },
+      {
+        "seed_index": 14,
+        "quality_score": 0.794848,
+        "semantic_score": 0.741598,
+        "total_score": 0.784198
+      },
+      {
+        "seed_index": 15,
+        "quality_score": 0.795787,
+        "semantic_score": 0.754722,
+        "total_score": 0.787574
+      },
+      {
+        "seed_index": 16,
+        "quality_score": 0.797497,
+        "semantic_score": 0.760968,
+        "total_score": 0.790191
+      },
+      {
+        "seed_index": 17,
+        "quality_score": 0.798036,
+        "semantic_score": 0.748751,
+        "total_score": 0.788179
+      },
+      {
+        "seed_index": 18,
+        "quality_score": 0.795793,
+        "semantic_score": 0.752776,
+        "total_score": 0.78719
+      },
+      {
+        "seed_index": 19,
+        "quality_score": 0.793206,
+        "semantic_score": 0.736072,
+        "total_score": 0.781779
+      }
+    ],
+    "self_forcing": [
+      {
+        "seed_index": 0,
+        "quality_score": 0.701594,
+        "semantic_score": 0.662764,
+        "total_score": 0.693828
+      },
+      {
+        "seed_index": 1,
+        "quality_score": 0.701078,
+        "semantic_score": 0.651116,
+        "total_score": 0.691086
+      },
+      {
+        "seed_index": 2,
+        "quality_score": 0.703921,
+        "semantic_score": 0.651245,
+        "total_score": 0.693386
+      },
+      {
+        "seed_index": 3,
+        "quality_score": 0.700249,
+        "semantic_score": 0.663658,
+        "total_score": 0.692931
+      },
+      {
+        "seed_index": 4,
+        "quality_score": 0.701016,
+        "semantic_score": 0.657043,
+        "total_score": 0.692221
+      },
+      {
+        "seed_index": 5,
+        "quality_score": 0.690222,
+        "semantic_score": 0.647062,
+        "total_score": 0.68159
+      },
+      {
+        "seed_index": 6,
+        "quality_score": 0.712985,
+        "semantic_score": 0.662043,
+        "total_score": 0.702796
+      },
+      {
+        "seed_index": 7,
+        "quality_score": 0.707572,
+        "semantic_score": 0.655688,
+        "total_score": 0.697195
+      },
+      {
+        "seed_index": 8,
+        "quality_score": 0.701344,
+        "semantic_score": 0.653723,
+        "total_score": 0.69182
+      },
+      {
+        "seed_index": 9,
+        "quality_score": 0.71072,
+        "semantic_score": 0.645814,
+        "total_score": 0.697739
+      },
+      {
+        "seed_index": 10,
+        "quality_score": 0.705665,
+        "semantic_score": 0.657899,
+        "total_score": 0.696112
+      },
+      {
+        "seed_index": 11,
+        "quality_score": 0.684409,
+        "semantic_score": 0.652495,
+        "total_score": 0.678026
+      },
+      {
+        "seed_index": 12,
+        "quality_score": 0.6974,
+        "semantic_score": 0.653846,
+        "total_score": 0.688689
+      },
+      {
+        "seed_index": 13,
+        "quality_score": 0.696154,
+        "semantic_score": 0.658644,
+        "total_score": 0.688652
+      },
+      {
+        "seed_index": 14,
+        "quality_score": 0.703825,
+        "semantic_score": 0.651791,
+        "total_score": 0.693418
+      },
+      {
+        "seed_index": 15,
+        "quality_score": 0.700016,
+        "semantic_score": 0.647679,
+        "total_score": 0.689549
+      },
+      {
+        "seed_index": 16,
+        "quality_score": 0.697654,
+        "semantic_score": 0.653714,
+        "total_score": 0.688866
+      },
+      {
+        "seed_index": 17,
+        "quality_score": 0.693232,
+        "semantic_score": 0.662524,
+        "total_score": 0.68709
+      },
+      {
+        "seed_index": 18,
+        "quality_score": 0.701014,
+        "semantic_score": 0.652684,
+        "total_score": 0.691348
+      },
+      {
+        "seed_index": 19,
+        "quality_score": 0.686344,
+        "semantic_score": 0.649713,
+        "total_score": 0.679017
+      }
+    ]
+  }
+}
