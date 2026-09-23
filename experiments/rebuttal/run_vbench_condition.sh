@@ -11,6 +11,7 @@ Usage:
     --name main_step600_ffe \
     --config_path experiments/rebuttal/configs/eval_ffe.yaml \
     --checkpoint_path PATH/model.pt \
+    --method framewise \
     --schedule ffe \
     --prompt_path eval/manifests/vbench_official_prompts.txt \
     --manifest_path eval/manifests/vbench_official_seed0.jsonl \
@@ -23,6 +24,7 @@ Usage:
 
 Options:
   --dimensions CSV   Optional selected VBench dimensions. Omit for all 16.
+  --method framewise|chunkwise  Autoregressive block mode. Default: framewise.
   --samples_per_prompt N  Generated samples per prompt, from 1 to 5. Default: 5.
   --extended_prompt_path PATH  Optional one-line-per-prompt conditioning rewrites.
   --require_no_ema   Reject --use_ema and audit raw generator provenance.
@@ -34,6 +36,7 @@ NAME=""
 CONFIG_PATH=""
 CHECKPOINT_PATH=""
 SCHEDULE=""
+METHOD="framewise"
 PROMPT_PATH=""
 MANIFEST_PATH=""
 FULL_INFO_PATH=""
@@ -53,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --config_path) CONFIG_PATH="$2"; shift 2 ;;
     --checkpoint_path) CHECKPOINT_PATH="$2"; shift 2 ;;
     --schedule) SCHEDULE="$2"; shift 2 ;;
+    --method) METHOD="$2"; shift 2 ;;
     --prompt_path) PROMPT_PATH="$2"; shift 2 ;;
     --manifest_path) MANIFEST_PATH="$2"; shift 2 ;;
     --full_info_path) FULL_INFO_PATH="$2"; shift 2 ;;
@@ -81,6 +85,14 @@ case "${SCHEDULE}" in
   all1|ffe|all4) ;;
   *) echo "--schedule must be all1, ffe, or all4" >&2; exit 1 ;;
 esac
+case "${METHOD}" in
+  framewise|chunkwise) ;;
+  *) echo "--method must be framewise or chunkwise" >&2; exit 1 ;;
+esac
+if [[ "${METHOD}" == "chunkwise" && "${SCHEDULE}" == "ffe" ]]; then
+  echo "FFE requires --method framewise" >&2
+  exit 1
+fi
 if [[ ! "${NAME}" =~ ^[A-Za-z0-9_.-]+$ ]]; then
   echo "--name contains unsupported characters" >&2
   exit 1
@@ -127,6 +139,7 @@ INFER_CMD=(
   --manifest_path "${MANIFEST_PATH}"
   --output_folder "${VIDEOS_DIR}"
   --gpus "${GPUS}"
+  --method "${METHOD}"
   --schedule "${SCHEDULE}"
   --num_output_frames 21
   --python "${PYTHON_BIN}"
