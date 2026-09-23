@@ -14,17 +14,19 @@ scoring/filenames, the same Qwen/Qwen2.5-7B-Instruct rewrites for model
 conditioning, five generation seeds per prompt, 16 dimensions, official
 normalized total/quality/semantic scoring, 21 latent/81 RGB frames, 16 fps,
 zero attention sink, and the checkpoint's generator weights (not EMA). FFE is
-four updates in the first block and one thereafter. `all4` is four updates
-in every block. The schedule reuses **existing trained checkpoints**; it does
-not train new models or evaluate a four-step model by switching a one-step
-checkpoint's sampler.
+four updates in the first block and one thereafter. The schedule reuses
+**existing trained checkpoints**; it does not train new models.
 
 | Priority | Paper location/question | Required cells | Existing aligned result? |
 |---|---|---|---|
 | Main 1 | Table `gan-ffe-ablation` (a), GAN contribution | full step 200 / DMD-only step 200, both FFE | No: old 75.27/80.36 used original prompts |
-| Main 2 | Table `trajectory-rectification`, 4-step consistency distillation | curved / rectified step 300, both all4 | No: old 61.16/71.11 used original prompts |
 | Appendix 1 | Table `extended-training` | full step 400 / 600, FFE; reuse Main 1 step 200 | No: old cells used original prompts |
-| Appendix 2 | Table `ablation-extra-dimensions` | Reuse all 16-dimension scores above, plus existing FFE pair | No extra generation |
+| Appendix 2 | Table `ablation-extra-dimensions`, GAN and FFE rows only | Reuse GAN's 16-dimension scores above and the existing FFE pair | No extra generation |
+
+The trajectory-rectification/curvature experiment is **excluded from this
+execution plan at the author's request**. Existing paper text and historical
+curvature artifacts are left untouched; their original-prompt results must
+not be relabeled as Qwen-aligned results.
 
 The paper's **83.76 headline** and **FFE pair (80.69/83.30)** were already
 Qwen-conditioned and should not be generated again solely for prompt
@@ -59,8 +61,7 @@ python -m unittest -v tests/test_paper_vbench_protocol.py tests/test_iclr2027_pr
 
 Find the **actual** pre-existing checkpoints. `full200`, `full400`, and
 `full600` must come from the *same* 600-step DMD+GAN training trajectory;
-`dmd200` is the paired DMD-only run; `curved300` and `rectified300` are the
-paired 300-step consistency-distillation arms. Do not substitute the released
+`dmd200` is the paired DMD-only run. Do not substitute the released
 `checkpoints/one_forcing.pt` for any of them. Use absolute paths below, and
 ensure the VBench Python environment has VBench dependencies installed.
 `--gpus all` resolves the host's actual idle GPU inventory; it does not assume
@@ -71,8 +72,6 @@ python experiments/rebuttal/run_iclr2027_priority.py \
   --phase main \
   --checkpoint full200=/ABS/PATH/full/checkpoint_model_000200/model.pt \
   --checkpoint dmd200=/ABS/PATH/dmd/checkpoint_model_000200/model.pt \
-  --checkpoint curved300=/ABS/PATH/curved/checkpoint_model_000300/model.pt \
-  --checkpoint rectified300=/ABS/PATH/rectified/checkpoint_model_000300/model.pt \
   --output_root /LOCAL/DISK/iclr2027_qwen \
   --gpus all --python /ABS/PATH/to/inference/python \
   --vbench_python /ABS/PATH/to/vbench/python

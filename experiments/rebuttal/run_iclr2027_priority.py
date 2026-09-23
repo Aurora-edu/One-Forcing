@@ -2,8 +2,9 @@
 """Run only the ICLR 2027 VBench cells that still need Qwen alignment.
 
 The paper's already Qwen-conditioned headline, FFE, long-video, and historical
-four-step results are deliberately not scheduled here. No training is started:
-the six inputs are existing, separately trained checkpoints. Main-text cells
+four-step results, as well as the curvature experiment, are deliberately not
+scheduled here. No training is started: the four inputs are existing
+checkpoints. Main-text cells
 are completed before appendix cells; an existing cell is reused only after a
 full protocol audit, never merely because a result JSON happens to exist.
 """
@@ -44,8 +45,6 @@ class Cell:
 CELLS = (
     Cell("full200_ffe", "full200", "ffe", "main", "adversarial objective"),
     Cell("dmd200_ffe", "dmd200", "ffe", "main", "adversarial objective"),
-    Cell("curved300_all4", "curved300", "all4", "main", "trajectory rectification"),
-    Cell("rectified300_all4", "rectified300", "all4", "main", "trajectory rectification"),
     Cell("full400_ffe", "full400", "ffe", "appendix", "training beyond 200 steps"),
     Cell("full600_ffe", "full600", "ffe", "appendix", "training beyond 200 steps"),
 )
@@ -65,8 +64,6 @@ def parse_checkpoint_assignments(assignments: list[str]) -> dict[str, Path]:
 
 
 def selected_cells(phase: str) -> tuple[Cell, ...]:
-    if phase == "all":
-        return CELLS
     return tuple(cell for cell in CELLS if cell.phase == phase)
 
 
@@ -119,12 +116,9 @@ def run_cell(
 
 
 def write_comparison(root: Path, phase: str) -> tuple[Path, Path]:
-    required = CELLS[:4] if phase == "main" else CELLS
+    required = selected_cells("main") if phase == "main" else CELLS
     assignments = [f"{cell.name}={summary_path(root, cell)}" for cell in required]
-    comparisons = [
-        "gan_gain=full200_ffe,dmd200_ffe",
-        "rectification_gain=rectified300_all4,curved300_all4",
-    ]
+    comparisons = ["gan_gain=full200_ffe,dmd200_ffe"]
     if phase == "appendix":
         comparisons.extend([
             "step400_minus_200=full400_ffe,full200_ffe",
@@ -141,7 +135,7 @@ def write_comparison(root: Path, phase: str) -> tuple[Path, Path]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--phase", choices=("plan", "main", "appendix", "all"), required=True)
+    parser.add_argument("--phase", choices=("plan", "main", "appendix"), required=True)
     parser.add_argument("--checkpoint", action="append", default=[], metavar="KEY=PATH")
     parser.add_argument("--output_root", default="eval/iclr2027_qwen")
     parser.add_argument("--gpus", default="all")
@@ -154,6 +148,7 @@ def main() -> None:
         for index, cell in enumerate(cells, 1):
             print(f"{index}. {cell.phase}: {cell.name} ({cell.checkpoint_key}, {cell.schedule})")
         print("Already aligned, omitted: headline; FFE; Qwen 4-step; 20-second generated videos.")
+        print("User-excluded: trajectory rectification/curvature experiment.")
         print("Paper-only check: 20-second Self-Forcing table provenance conflicts with saved audits.")
         return
     missing = sorted({cell.checkpoint_key for cell in cells} - paths.keys())
@@ -168,14 +163,14 @@ def main() -> None:
     root = Path(args.output_root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
     if args.phase == "appendix":
-        for cell in CELLS[:4]:
+        for cell in selected_cells("main"):
             if not summary_path(root, cell).is_file():
                 parser.error(f"Main-text cell must be complete before appendix: {cell.name}")
     for cell in cells:
         run_cell(root, cell, paths[cell.checkpoint_key], args.gpus, python, vbench_python)
-        if cell.name == "rectified300_all4":
+        if cell.name == "dmd200_ffe":
             write_comparison(root, "main")
-    if args.phase in ("appendix", "all"):
+    if args.phase == "appendix":
         write_comparison(root, "appendix")
 
 
