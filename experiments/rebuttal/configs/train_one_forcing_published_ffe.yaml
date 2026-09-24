@@ -1,0 +1,5 @@
+# Full One-Forcing arm: repository's documented FFE-aligned training recipe.
+# Explicit data type matches the paired DMD-only arm and launcher's CLI.
+_base_: ../../../ffe_config.yaml
+
+dataset_type: clean_latent_lmdb

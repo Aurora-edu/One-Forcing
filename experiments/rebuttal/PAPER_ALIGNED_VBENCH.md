@@ -1,9 +1,9 @@
 # Qwen-aligned VBench runner
 
-For the manuscript-83.76 GAN ablation, use
-[`PUBLISHED_FFE_DMD_ONLY.md`](PUBLISHED_FFE_DMD_ONLY.md). The historical
+For the new paired GAN ablation under the repository's FFE One-Forcing recipe,
+use [`PAIRED_FFE_GAN_ABLATION.md`](PAIRED_FFE_GAN_ABLATION.md). The historical
 fixed-rollout full200/DMD-only pair below answers a different training
-configuration and is not the published-recipe ablation.
+configuration and is not the FFE-training-recipe ablation.
 
 For the priority-ordered ICLR 2027 reruns, use
 [`ICLR2027_ALIGNED_EXPERIMENTS.md`](ICLR2027_ALIGNED_EXPERIMENTS.md) and
