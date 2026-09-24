@@ -1,0 +1,108 @@
+{
+  "baseline_dmd_only": {
+    "quality_score": 85.0975618507378,
+    "semantic_score": 77.18559828012927,
+    "total_score": 83.51516913661608
+  },
+  "baseline_report_sha256": "a1bfb84ded8c3866ea24e8e21f99822f23b6f52f3d46355edfb8fa8d9f643172",
+  "baseline_training_seed": 48491,
+  "checkpoint": {
+    "checkpoint_path": "/data/banyuanhao/iclr2027_ckpts/one_forcing_official_dmd_seed1/runs/dmd/checkpoint_model_000200/model.pt",
+    "checkpoint_size_bytes": 11455724524,
+    "generator_ema_present_but_not_selected": true,
+    "num_generator_tensors": 825,
+    "schema_version": 1,
+    "selected_weight_source": "generator",
+    "step": 200,
+    "use_ema": false
+  },
+  "comparison_type": "dmd_only_training_seed_repeat_not_gan_ablation",
+  "delta_repeat_minus_baseline": {
+    "quality_score": -0.20597789676398293,
+    "semantic_score": 0.508381006177359,
+    "total_score": -0.06310611617571737
+  },
+  "dimensions": {
+    "baseline": {
+      "aesthetic_quality": 0.6496066987514496,
+      "appearance_style": 0.1980932291666666,
+      "background_consistency": 0.9497879738031432,
+      "color": 0.8256597518946917,
+      "dynamic_degree": 0.6722222222222223,
+      "human_action": 0.9,
+      "imaging_quality": 0.7069841190329523,
+      "motion_smoothness": 0.9882913584913523,
+      "multiple_objects": 0.8030487804878049,
+      "object_class": 0.948259493670886,
+      "overall_consistency": 0.25397382503555666,
+      "scene": 0.5408430232558139,
+      "spatial_relationship": 0.7617734406368083,
+      "subject_consistency": 0.9660104634488627,
+      "temporal_flickering": 0.9918563721024142,
+      "temporal_style": 0.24007755696773528
+    },
+    "repeat": {
+      "aesthetic_quality": 0.6478247464984976,
+      "appearance_style": 0.19981024305555561,
+      "background_consistency": 0.9502536862395531,
+      "color": 0.8014927855238859,
+      "dynamic_degree": 0.7972222222222223,
+      "human_action": 0.912,
+      "imaging_quality": 0.6591171851487931,
+      "motion_smoothness": 0.9841829287715012,
+      "multiple_objects": 0.8182926829268292,
+      "object_class": 0.9515822784810126,
+      "overall_consistency": 0.25553443917343693,
+      "scene": 0.5357558139534884,
+      "spatial_relationship": 0.7961849407903524,
+      "subject_consistency": 0.9577807125625093,
+      "temporal_flickering": 0.9906934009296449,
+      "temporal_style": 0.240372362062335
+    }
+  },
+  "disclosed_environment_deviations": {
+    "torch": {
+      "expected": "2.5.1",
+      "found": "2.11.0"
+    },
+    "torch_load_weights_only_default": {
+      "expected": "True (torch>=2.6 default)",
+      "found": "False (restored for this scoring process)",
+      "reason": "downstream consequence of the disclosed torch 2.11.0 deviation; restores pre-2.6 torch.load default so vbench's vendored, officially-sourced auxiliary scorer checkpoints (not the evaluated model) can be unpickled unmodified"
+    },
+    "torchvision": {
+      "expected": "0.20.1",
+      "found": "0.26.0"
+    }
+  },
+  "eval_protocol": {
+    "conditioning": "pinned_qwen_rewrite",
+    "full_info_sha256": "12d720a3f5ec60d7640edadd2272876056da098632171fc30356be25674c4deb",
+    "generation_seed_rule": "prompt_index * samples_per_prompt + sample_index",
+    "manifest_sha256": "483f527964922949ccf4f1a96e9a16fe56c71f5154e90f451d4c41aae4a82e9e",
+    "official_five_sample_protocol": true,
+    "prompt_count": 944,
+    "prompt_sha256": "d802b4830e9ea85550e5fad2e9f077d74f79fcfad60d0b56b1314a0f5b652dc8",
+    "rewrite_sha256": "90dde244dc4bd613f52726c833f303e44254b410d386fe4f5faaa05c355756ac",
+    "samples_per_prompt": 5,
+    "schema_version": 1,
+    "scoring_prompt": "original_vbench_prompt"
+  },
+  "note": "DMD+GAN was not retrained. This report does not estimate a same-seed GAN gain.",
+  "repeat_dmd_only": {
+    "quality_score": 84.89158395397382,
+    "semantic_score": 77.69397928630663,
+    "total_score": 83.45206302044036
+  },
+  "repeat_training_seed": 1,
+  "schema_version": 1,
+  "status": "pass",
+  "training_log_audit": {
+    "all_gan_losses_zero": true,
+    "all_logged_scalars_finite": true,
+    "critic_updates_logged": 200,
+    "generator_updates_logged": 40,
+    "last_step": 200
+  },
+  "training_source": "Aurora-edu/One-Forcing main@c9a2350e8740531562011fc9618e1a928d911ae0"
+}
