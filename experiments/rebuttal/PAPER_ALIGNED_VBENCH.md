@@ -1,7 +1,11 @@
 # Qwen-aligned VBench runner
 
-For the paired GAN ablation aligned to GitHub `main`'s One-Forcing training
-configuration, use [`MAIN_ALIGNED_GAN_ABLATION.md`](MAIN_ALIGNED_GAN_ABLATION.md).
+For the paired GAN ablation using **the official GitHub `main` training code**
+for both arms, use
+[`OFFICIAL_MAIN_CODE_GAN_ABLATION.md`](OFFICIAL_MAIN_CODE_GAN_ABLATION.md).
+The older [`MAIN_ALIGNED_GAN_ABLATION.md`](MAIN_ALIGNED_GAN_ABLATION.md)
+matches main's YAML hyperparameters but runs the rebuttal-branch trainer;
+it is not the official-code experiment.
 The later FFE-trained variant is documented separately in
 [`PAIRED_FFE_GAN_ABLATION.md`](PAIRED_FFE_GAN_ABLATION.md). The historical
 fixed-rollout full200/DMD-only pair below answers a different training

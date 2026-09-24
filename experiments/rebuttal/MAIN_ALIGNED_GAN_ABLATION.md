@@ -1,5 +1,10 @@
 # GitHub-main-aligned One-Forcing GAN ablation
 
+**Historical config-aligned variant:** this workflow trains with the rebuttal
+branch's implementation, not the unmodified official GitHub main code. For
+the author's requested official-code comparison, use
+[`OFFICIAL_MAIN_CODE_GAN_ABLATION.md`](OFFICIAL_MAIN_CODE_GAN_ABLATION.md).
+
 GitHub `main@c9a2350` documents `torchrun --nproc_per_node=8 train.py
 --config_path config.yaml` with the clean-latent LMDB. Its `config.yaml` has
 `max_steps: 200`, `denoising_step_list: [1000]`, one latent frame per block,
