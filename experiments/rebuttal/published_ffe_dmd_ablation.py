@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit a paired FFE-aligned One-Forcing vs DMD-only experiment.
+"""Audit paired One-Forcing vs DMD-only experiments for FFE or main recipes.
 
 Both arms are newly trained from the same ODE checkpoint. The manuscript's
 83.76 headline is displayed only as an external reproduction check; the GAN
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import subprocess
 import sys
 from pathlib import Path
 
@@ -27,14 +28,20 @@ from utils.config import load_config
 
 
 BASE_CONFIG = REPO_ROOT / "ffe_config.yaml"
+MAIN_CONFIG = REPO_ROOT / "config.yaml"
+MAIN_COMMIT = "c9a2350"
 CONFIGS = REPO_ROOT / "experiments/rebuttal/configs"
 FULL_CONFIG = CONFIGS / "train_one_forcing_published_ffe.yaml"
 DMD_CONFIG = CONFIGS / "train_dmd_only_published_ffe.yaml"
+MAIN_FULL_CONFIG = CONFIGS / "train_one_forcing_main_aligned.yaml"
+MAIN_DMD_CONFIG = CONFIGS / "train_dmd_only_main_aligned.yaml"
 RUN_NAMES = {
     "full": "one_forcing_paired_ffe",
     "dmd": "dmd_only_paired_ffe",
 }
 CONFIG_PATHS = {"full": FULL_CONFIG, "dmd": DMD_CONFIG}
+MAIN_RUN_NAMES = {"full": "one_forcing_paired_main", "dmd": "dmd_only_paired_main"}
+MAIN_CONFIG_PATHS = {"full": MAIN_FULL_CONFIG, "dmd": MAIN_DMD_CONFIG}
 FIELDS = ("total_score", "quality_score", "semantic_score")
 PAPER_REFERENCE = {"total_score": 83.76, "quality_score": 85.22, "semantic_score": 77.91}
 
@@ -67,17 +74,31 @@ def _assert_equal(actual: dict, expected: dict, description: str) -> None:
         raise ValueError(f"{description} differs: {changes}")
 
 
-def verify_recipe() -> dict:
-    base, full, dmd = (_mapping(path) for path in (BASE_CONFIG, FULL_CONFIG, DMD_CONFIG))
+def verify_recipe(recipe: str = "ffe") -> dict:
+    if recipe not in ("ffe", "main"):
+        raise ValueError(f"Unknown training recipe: {recipe}")
+    base_path = BASE_CONFIG if recipe == "ffe" else MAIN_CONFIG
+    config_paths = CONFIG_PATHS if recipe == "ffe" else MAIN_CONFIG_PATHS
+    base = _mapping(base_path)
+    full = _mapping(config_paths["full"])
+    dmd = _mapping(config_paths["dmd"])
+    if recipe == "main":
+        try:
+            main_yaml = subprocess.check_output(
+                ["git", "show", f"{MAIN_COMMIT}:config.yaml"],
+                cwd=REPO_ROOT, text=True,
+            )
+        except subprocess.CalledProcessError as error:
+            raise RuntimeError(f"Fetch GitHub main commit {MAIN_COMMIT} before auditing") from error
+        main_base = OmegaConf.to_container(OmegaConf.create(main_yaml), resolve=True)
+        _assert_equal(base, dict(main_base, randomize_seed=False), "Local base versus main@c9a2350")
     if base.get("gan_g_weight") != 0.03 or base.get("gan_d_weight") != 0.03:
         raise ValueError("Full One-Forcing recipe must retain GAN weights 0.03/0.03")
     expected_full = dict(base, dataset_type="clean_latent_lmdb")
-    _assert_equal(full, expected_full, "Full arm versus documented FFE recipe")
+    _assert_equal(full, expected_full, f"Full arm versus {recipe} recipe")
     expected_dmd = dict(expected_full, gan_g_weight=0.0, gan_d_weight=0.0)
     _assert_equal(dmd, expected_dmd, "DMD-only arm versus full One-Forcing")
     fixed = {
-        "rollout_schedule": "first4then1",
-        "first_rollout_num_frames": 4,
         "num_frame_per_block": 1,
         "max_steps": 200,
         "log_iters": 50,
@@ -89,23 +110,37 @@ def verify_recipe() -> dict:
     }
     for key, value in fixed.items():
         if full.get(key) != value:
-            raise ValueError(f"Documented FFE recipe has unexpected {key}: {full.get(key)!r}")
-    if full.get("first_frame_denoising_step_list") != [1000, 750, 500, 250]:
-        raise ValueError("First FFE block must have four denoising updates")
+            raise ValueError(f"{recipe} recipe has unexpected {key}: {full.get(key)!r}")
     if full.get("denoising_step_list") != [1000]:
-        raise ValueError("Subsequent frames must have one denoising update")
+        raise ValueError("Per-frame denoising schedule must be one step")
+    if recipe == "ffe":
+        if full.get("rollout_schedule") != "first4then1" or full.get("first_rollout_num_frames") != 4:
+            raise ValueError("FFE training must use first4then1 with a four-latent first block")
+        if full.get("first_frame_denoising_step_list") != [1000, 750, 500, 250]:
+            raise ValueError("First FFE block must have four denoising updates")
+    elif any(key in full for key in (
+        "rollout_schedule", "first_rollout_num_frames", "first_frame_denoising_step_list"
+    )):
+        raise ValueError("GitHub main training has fixed one-step blocks, not FFE training")
     return {
-        "documented_one_forcing_recipe": str(BASE_CONFIG),
-        "full_config": str(FULL_CONFIG),
-        "dmd_config": str(DMD_CONFIG),
+        "recipe_name": recipe,
+        "source_config": str(base_path),
+        "pinned_main_commit": MAIN_COMMIT if recipe == "main" else None,
+        "training_rollout": "fixed_one_step" if recipe == "main" else "first4then1",
+        "full_config": str(config_paths["full"]),
+        "dmd_config": str(config_paths["dmd"]),
         "only_arm_difference": ["gan_g_weight", "gan_d_weight"],
         "training_steps_per_arm": 200,
+        "seed_note": (
+            "Both arms fix runtime seed 0 for pairing; main@c9a2350 randomized it when YAML seed was 0."
+            if recipe == "main" else "Both arms fix runtime seed 0 for pairing."
+        ),
     }
 
 
-def audit_training(label: str, run_dir: Path) -> dict:
+def audit_training(label: str, run_dir: Path, recipe: str = "ffe") -> dict:
     run_dir = run_dir.resolve()
-    config_path = CONFIG_PATHS[label]
+    config_path = (CONFIG_PATHS if recipe == "ffe" else MAIN_CONFIG_PATHS)[label]
     expected = _mapping(config_path)
     resolved = _mapping(run_dir / "resolved_config.yaml")
     for key, value in expected.items():
@@ -138,8 +173,9 @@ def audit_training(label: str, run_dir: Path) -> dict:
     }
 
 
-def audit_evaluation(label: str, eval_root: Path, checkpoint_audit: dict) -> dict:
-    evaluated = audit_run(eval_root.resolve(), RUN_NAMES[label], 5, "ffe", "generator")
+def audit_evaluation(label: str, eval_root: Path, checkpoint_audit: dict, recipe: str = "ffe") -> dict:
+    run_name = (RUN_NAMES if recipe == "ffe" else MAIN_RUN_NAMES)[label]
+    evaluated = audit_run(eval_root.resolve(), run_name, 5, "ffe", "generator")
     if Path(evaluated["checkpoint_path"]).resolve() != Path(checkpoint_audit["checkpoint_path"]).resolve():
         raise ValueError(f"{label}: evaluation did not use its own step-200 checkpoint")
     if evaluated["checkpoint_size_bytes"] != checkpoint_audit["checkpoint_size_bytes"]:
@@ -157,11 +193,14 @@ def audit_evaluation(label: str, eval_root: Path, checkpoint_audit: dict) -> dic
     return evaluated
 
 
-def build_report(full_run_dir: Path, dmd_run_dir: Path, full_eval_root: Path, dmd_eval_root: Path) -> dict:
-    recipe = verify_recipe()
+def build_report(
+    full_run_dir: Path, dmd_run_dir: Path, full_eval_root: Path, dmd_eval_root: Path,
+    recipe_name: str = "ffe",
+) -> dict:
+    recipe = verify_recipe(recipe_name)
     training = {
-        "full": audit_training("full", full_run_dir),
-        "dmd": audit_training("dmd", dmd_run_dir),
+        "full": audit_training("full", full_run_dir, recipe_name),
+        "dmd": audit_training("dmd", dmd_run_dir, recipe_name),
     }
     full_config = training["full"]["resolved_config"]
     dmd_config = training["dmd"]["resolved_config"]
@@ -174,8 +213,8 @@ def build_report(full_run_dir: Path, dmd_run_dir: Path, full_eval_root: Path, dm
         raise ValueError("Paired training arms used different code revisions")
 
     evaluations = {
-        "full": audit_evaluation("full", full_eval_root, training["full"]["checkpoint_audit"]),
-        "dmd": audit_evaluation("dmd", dmd_eval_root, training["dmd"]["checkpoint_audit"]),
+        "full": audit_evaluation("full", full_eval_root, training["full"]["checkpoint_audit"], recipe_name),
+        "dmd": audit_evaluation("dmd", dmd_eval_root, training["dmd"]["checkpoint_audit"], recipe_name),
     }
     full_protocol = evaluations["full"]["protocol"]
     dmd_protocol = evaluations["dmd"]["protocol"]
@@ -196,7 +235,7 @@ def build_report(full_run_dir: Path, dmd_run_dir: Path, full_eval_root: Path, dm
     }
     return {
         "status": "pass",
-        "comparison_type": "newly_trained_paired_objective_ablation",
+        "comparison_type": f"newly_trained_paired_{recipe_name}_objective_ablation",
         "full_one_forcing": scores["full"],
         "dmd_only": scores["dmd"],
         "gan_gain": gain,
@@ -217,17 +256,23 @@ def render_markdown(report: dict) -> str:
         style = "+.2f" if signed else ".2f"
         return " | ".join(format(scores[key], style) for key in FIELDS)
 
+    recipe_name = report["recipe"]["recipe_name"]
+    training_schedule = (
+        "fixed one-step framewise rollout (GitHub main recipe)"
+        if recipe_name == "main" else "FFE first-4-then-1 rollout"
+    )
     return "\n".join([
-        "# Paired FFE One-Forcing GAN ablation", "",
+        f"# Paired {recipe_name} One-Forcing GAN ablation", "",
         "| Arm | Total | Quality | Semantic |", "|---|---:|---:|---:|",
         f"| DMD+GAN (new One-Forcing run) | {cells(report['full_one_forcing'])} |",
         f"| DMD-only (new run) | {cells(report['dmd_only'])} |",
         f"| GAN gain (paired full − DMD-only) | {cells(report['gan_gain'], signed=True)} |", "",
         "Both arms were trained from the same configured ODE checkpoint on the same clean-latent "
-        "data with seed 0, eight ranks, 200 steps and FFE first-4-then-1 rollout. "
+        f"data with seed 0, eight ranks, 200 steps and {training_schedule}. "
         "Only the GAN objective weights differ. Evaluation uses the same pinned Qwen "
         "rewrite and generation manifest, five samples for each of 944 prompts, all "
         "16 VBench dimensions, FFE, and raw generator weights.", "",
+        report["recipe"]["seed_note"], "",
         "The manuscript headline 83.76 / 85.22 / 77.91 is a reproduction check, "
         "not one side of this GAN-gain calculation. New DMD+GAN minus headline: "
         f"{cells(report['full_minus_paper_reference'], signed=True)} (total / quality / semantic).", "",
@@ -239,8 +284,10 @@ def render_markdown(report: dict) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("check_recipe")
+    check = sub.add_parser("check_recipe")
+    check.add_argument("--recipe", choices=("ffe", "main"), default="ffe")
     report = sub.add_parser("report")
+    report.add_argument("--recipe", choices=("ffe", "main"), default="ffe")
     report.add_argument("--full_run_dir", required=True)
     report.add_argument("--dmd_run_dir", required=True)
     report.add_argument("--full_eval_root", required=True)
@@ -248,11 +295,12 @@ def main() -> None:
     report.add_argument("--output_prefix", required=True)
     args = parser.parse_args()
     if args.command == "check_recipe":
-        print(json.dumps(verify_recipe(), indent=2, sort_keys=True))
+        print(json.dumps(verify_recipe(args.recipe), indent=2, sort_keys=True))
     else:
         result = build_report(
             Path(args.full_run_dir), Path(args.dmd_run_dir),
             Path(args.full_eval_root), Path(args.dmd_eval_root),
+            args.recipe,
         )
         prefix = Path(args.output_prefix).resolve()
         prefix.parent.mkdir(parents=True, exist_ok=True)

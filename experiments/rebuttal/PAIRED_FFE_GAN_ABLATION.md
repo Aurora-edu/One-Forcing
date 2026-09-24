@@ -1,5 +1,10 @@
 # Paired FFE GAN ablation for One-Forcing
 
+This is the later **FFE-trained variant**, not the training configuration on
+current GitHub `main`. To match `main@c9a2350`, use
+[`MAIN_ALIGNED_GAN_ABLATION.md`](MAIN_ALIGNED_GAN_ABLATION.md). Do not change
+or interrupt an already-running FFE-variant job.
+
 This replaces the earlier one-arm comparison to the manuscript's 83.76
 headline. **Newly train and evaluate both arms** under the repository's
 documented `ffe_config.yaml` One-Forcing recipe:

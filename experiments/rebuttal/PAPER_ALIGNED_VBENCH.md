@@ -1,7 +1,9 @@
 # Qwen-aligned VBench runner
 
-For the new paired GAN ablation under the repository's FFE One-Forcing recipe,
-use [`PAIRED_FFE_GAN_ABLATION.md`](PAIRED_FFE_GAN_ABLATION.md). The historical
+For the paired GAN ablation aligned to GitHub `main`'s One-Forcing training
+configuration, use [`MAIN_ALIGNED_GAN_ABLATION.md`](MAIN_ALIGNED_GAN_ABLATION.md).
+The later FFE-trained variant is documented separately in
+[`PAIRED_FFE_GAN_ABLATION.md`](PAIRED_FFE_GAN_ABLATION.md). The historical
 fixed-rollout full200/DMD-only pair below answers a different training
 configuration and is not the FFE-training-recipe ablation.
 

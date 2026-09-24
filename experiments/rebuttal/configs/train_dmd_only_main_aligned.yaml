@@ -1,0 +1,5 @@
+# Same main@c9a2350 training recipe as the full arm, GAN objective removed.
+_base_: train_one_forcing_main_aligned.yaml
+
+gan_g_weight: 0.0
+gan_d_weight: 0.0

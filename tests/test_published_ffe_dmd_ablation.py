@@ -14,8 +14,20 @@ from utils.config import load_config
 class PairedFfeGanAblationTests(unittest.TestCase):
     def test_recipe_inherits_one_forcing_and_only_zeroes_gan(self):
         audit = ablation.verify_recipe()
+        self.assertEqual(audit["recipe_name"], "ffe")
         self.assertEqual(audit["only_arm_difference"], ["gan_g_weight", "gan_d_weight"])
         self.assertEqual(audit["training_steps_per_arm"], 200)
+
+    def test_main_recipe_matches_pinned_github_main(self):
+        audit = ablation.verify_recipe("main")
+        self.assertEqual(audit["pinned_main_commit"], "c9a2350")
+        self.assertEqual(audit["training_rollout"], "fixed_one_step")
+        full = load_config(str(ablation.MAIN_FULL_CONFIG))
+        dmd = load_config(str(ablation.MAIN_DMD_CONFIG))
+        self.assertFalse(hasattr(full, "first_frame_denoising_step_list"))
+        self.assertEqual(full.max_steps, 200)
+        self.assertEqual(full.gan_g_weight, 0.03)
+        self.assertEqual(dmd.gan_g_weight, 0.0)
 
     def test_recipe_rejects_schedule_drift_in_one_arm(self):
         original_load = ablation.load_config
@@ -91,7 +103,7 @@ class PairedFfeGanAblationTests(unittest.TestCase):
                 },
             }
 
-        with patch.object(ablation, "audit_training", side_effect=lambda label, _: training[label]), patch.object(
+        with patch.object(ablation, "audit_training", side_effect=lambda label, *_: training[label]), patch.object(
             ablation, "audit_evaluation", side_effect=lambda label, *_: evaluations[label]
         ):
             report = ablation.build_report(Path("/full"), Path("/dmd"), Path("/fe"), Path("/de"))

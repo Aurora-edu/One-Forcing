@@ -1,0 +1,7 @@
+# Align with Aurora-edu/One-Forcing main@c9a2350 config.yaml.
+# Explicit dataset type is equivalent to main's clean-latent LMDB input.
+# The paired experiment fixes runtime seed 0 in both arms; main's old trainer
+# randomized a seed when config.seed == 0.
+_base_: ../../../config.yaml
+
+dataset_type: clean_latent_lmdb
