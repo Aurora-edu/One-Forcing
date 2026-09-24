@@ -169,7 +169,7 @@ def validate_gpus(gpu_ids):
         )
 
 
-def validate_versions():
+def validate_versions(gpu_ids, allow_b200_torch_deviation=False):
     actual = {
         "torch": torch.__version__.split("+", 1)[0],
         "torchvision": torchvision.__version__.split("+", 1)[0],
@@ -186,6 +186,19 @@ def validate_versions():
         "accelerate": "1.13.0",
         "numpy": "1.24.4",
     }
+    if allow_b200_torch_deviation:
+        gpu_capabilities = {
+            torch.cuda.get_device_capability(int(gpu_id))
+            for gpu_id in gpu_ids.split(",")
+        }
+        if gpu_capabilities != {(10, 0)}:
+            raise RuntimeError(
+                "--allow_b200_torch_deviation requires every selected GPU to be sm_100 "
+                f"(observed {sorted(gpu_capabilities)})"
+            )
+        expected["torch"] = "2.11.0"
+        expected["torchvision"] = "0.26.0"
+        print("Disclosed hardware deviation: B200/sm_100 uses torch 2.11.0, torchvision 0.26.0")
     mismatches = {
         name: (actual[name], version)
         for name, version in expected.items()
@@ -211,6 +224,10 @@ def main():
     parser.add_argument("--gpus", required=True)
     parser.add_argument("--seed", type=int, required=True)
     parser.add_argument(
+        "--allow_b200_torch_deviation", action="store_true",
+        help="Explicitly accept the audited torch 2.11.0/torchvision 0.26.0 pair on sm_100 GPUs only.",
+    )
+    parser.add_argument(
         "--max_steps",
         type=int,
         default=0,
@@ -227,8 +244,8 @@ def main():
     if str(config.dataset_type) != "clean_latent_lmdb":
         raise ValueError("Rebuttal training requires dataset_type=clean_latent_lmdb")
 
-    validate_versions()
     validate_gpus(args.gpus)
+    validate_versions(args.gpus, args.allow_b200_torch_deviation)
     validate_checkpoint(args.generator_ckpt)
     validate_teacher(args.teacher_model_path)
     validate_local_wan_assets(require_text_encoder=not bool(args.prompt_embedding_cache_path))

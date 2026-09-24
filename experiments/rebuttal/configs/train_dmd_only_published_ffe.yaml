@@ -1,0 +1,8 @@
+# Published One-Forcing framewise/FFE training recipe, with GAN removed.
+# The launcher passes --dataset_type clean_latent_lmdb for both arms; make it
+# explicit here so its preflight can verify the clean-latent dataset.
+_base_: ../../../ffe_config.yaml
+
+dataset_type: clean_latent_lmdb
+gan_g_weight: 0.0
+gan_d_weight: 0.0

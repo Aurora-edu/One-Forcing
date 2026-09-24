@@ -38,6 +38,7 @@ Options:
   --generator_optimizer_state_cpu_offload
                               Keep AdamW state on CPU between generator steps.
   --rank0_preload_generator_ckpt  Avoid every rank loading the ODE checkpoint.
+  --allow_b200_torch_deviation   Explicit torch 2.11/torchvision 0.26 exception on sm_100 only.
   --no_save                   Do not save checkpoints.
   --python PATH               Python executable. Default: python.
   -h, --help                  Show this help.
@@ -63,6 +64,7 @@ FAKE_SCORE_CPU_OFFLOAD="0"
 MANUAL_GENERATOR_BACKWARD="0"
 GENERATOR_OPTIMIZER_STATE_CPU_OFFLOAD="0"
 RANK0_PRELOAD_GENERATOR_CKPT="0"
+ALLOW_B200_TORCH_DEVIATION="0"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 
 while [[ $# -gt 0 ]]; do
@@ -86,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --manual_generator_backward) MANUAL_GENERATOR_BACKWARD="1"; shift ;;
     --generator_optimizer_state_cpu_offload) GENERATOR_OPTIMIZER_STATE_CPU_OFFLOAD="1"; shift ;;
     --rank0_preload_generator_ckpt) RANK0_PRELOAD_GENERATOR_CKPT="1"; shift ;;
+    --allow_b200_torch_deviation) ALLOW_B200_TORCH_DEVIATION="1"; shift ;;
     --python) PYTHON_BIN="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 1 ;;
@@ -190,6 +193,9 @@ if [[ -n "${PROMPT_EMBEDDING_CACHE_PATH}" ]]; then
 fi
 if [[ -n "${MAX_STEPS}" ]]; then
   PREFLIGHT_CMD+=(--max_steps "${MAX_STEPS}")
+fi
+if [[ "${ALLOW_B200_TORCH_DEVIATION}" == "1" ]]; then
+  PREFLIGHT_CMD+=(--allow_b200_torch_deviation)
 fi
 "${PREFLIGHT_CMD[@]}"
 mkdir -p "${RUN_DIR}"

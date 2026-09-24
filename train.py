@@ -151,6 +151,7 @@ def main():
             "config_path": os.path.abspath(args.config_path),
             "cwd": os.getcwd(),
             "python": sys.version,
+            "world_size": int(os.environ.get("WORLD_SIZE", "1")),
         }
         try:
             metadata["git_commit"] = subprocess.check_output(

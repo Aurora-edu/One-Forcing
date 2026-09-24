@@ -1,5 +1,10 @@
 # Qwen-aligned VBench runner
 
+For the manuscript-83.76 GAN ablation, use
+[`PUBLISHED_FFE_DMD_ONLY.md`](PUBLISHED_FFE_DMD_ONLY.md). The historical
+fixed-rollout full200/DMD-only pair below answers a different training
+configuration and is not the published-recipe ablation.
+
 For the priority-ordered ICLR 2027 reruns, use
 [`ICLR2027_ALIGNED_EXPERIMENTS.md`](ICLR2027_ALIGNED_EXPERIMENTS.md) and
 `run_iclr2027_priority.py`. The examples below show the generic single-cell
