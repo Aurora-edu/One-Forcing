@@ -1,0 +1,97 @@
+{
+  "checkpoints": {
+    "dmd": {
+      "checkpoint_path": "/data/banyuanhao/iclr2027_ckpts/one_forcing_official_pair/runs/dmd/checkpoint_model_000200/model.pt",
+      "checkpoint_size_bytes": 11455724524,
+      "generator_ema_present_but_not_selected": true,
+      "num_generator_tensors": 825,
+      "schema_version": 1,
+      "selected_weight_source": "generator",
+      "step": 200,
+      "use_ema": false
+    },
+    "full": {
+      "checkpoint_path": "/data/banyuanhao/iclr2027_ckpts/one_forcing_official_pair/runs/full/checkpoint_model_000200/model.pt",
+      "checkpoint_size_bytes": 11600627156,
+      "generator_ema_present_but_not_selected": true,
+      "num_generator_tensors": 825,
+      "schema_version": 1,
+      "selected_weight_source": "generator",
+      "step": 200,
+      "use_ema": false
+    }
+  },
+  "dimensions": {
+    "dmd": {
+      "aesthetic_quality": 0.6496066987514496,
+      "appearance_style": 0.1980932291666666,
+      "background_consistency": 0.9497879738031432,
+      "color": 0.8256597518946917,
+      "dynamic_degree": 0.6722222222222223,
+      "human_action": 0.9,
+      "imaging_quality": 0.7069841190329523,
+      "motion_smoothness": 0.9882913584913523,
+      "multiple_objects": 0.8030487804878049,
+      "object_class": 0.948259493670886,
+      "overall_consistency": 0.25397382503555666,
+      "scene": 0.5408430232558139,
+      "spatial_relationship": 0.7617734406368083,
+      "subject_consistency": 0.9660104634488627,
+      "temporal_flickering": 0.9918563721024142,
+      "temporal_style": 0.24007755696773528
+    },
+    "full": {
+      "aesthetic_quality": 0.6447304895488165,
+      "appearance_style": 0.2073093749999999,
+      "background_consistency": 0.9399949397597201,
+      "color": 0.7702981013695299,
+      "dynamic_degree": 0.7638888888888888,
+      "human_action": 0.892,
+      "imaging_quality": 0.6862111240641682,
+      "motion_smoothness": 0.9810217437026417,
+      "multiple_objects": 0.8089939024390244,
+      "object_class": 0.9534810126582278,
+      "overall_consistency": 0.25124118642941595,
+      "scene": 0.5234011627906977,
+      "spatial_relationship": 0.8164381169854054,
+      "subject_consistency": 0.9677999159776501,
+      "temporal_flickering": 0.9828592492596011,
+      "temporal_style": 0.23925566108524798
+    }
+  },
+  "dmd_gan": {
+    "quality_score": 84.47925435891507,
+    "semantic_score": 77.22863848670902,
+    "total_score": 83.02913118447385
+  },
+  "dmd_only": {
+    "quality_score": 85.0975618507378,
+    "semantic_score": 77.18559828012927,
+    "total_score": 83.51516913661608
+  },
+  "eval_protocol": {
+    "conditioning": "pinned_qwen_rewrite",
+    "full_info_sha256": "12d720a3f5ec60d7640edadd2272876056da098632171fc30356be25674c4deb",
+    "generation_seed_rule": "prompt_index * samples_per_prompt + sample_index",
+    "manifest_sha256": "483f527964922949ccf4f1a96e9a16fe56c71f5154e90f451d4c41aae4a82e9e",
+    "official_five_sample_protocol": true,
+    "prompt_count": 944,
+    "prompt_sha256": "d802b4830e9ea85550e5fad2e9f077d74f79fcfad60d0b56b1314a0f5b652dc8",
+    "rewrite_sha256": "90dde244dc4bd613f52726c833f303e44254b410d386fe4f5faaa05c355756ac",
+    "samples_per_prompt": 5,
+    "schema_version": 1,
+    "scoring_prompt": "original_vbench_prompt"
+  },
+  "gan_gain": {
+    "quality_score": -0.6183074918227334,
+    "semantic_score": 0.04304020657974661,
+    "total_score": -0.486037952142226
+  },
+  "only_arm_difference": [
+    "gan_g_weight",
+    "gan_d_weight"
+  ],
+  "shared_effective_seed": 48491,
+  "status": "pass",
+  "training_source": "Aurora-edu/One-Forcing main@c9a2350e8740531562011fc9618e1a928d911ae0"
+}
