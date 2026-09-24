@@ -1,5 +1,9 @@
 # Official GitHub-main-code DMD+GAN versus DMD-only
 
+For the subsequent **DMD-only training-seed-1 repeat** (no new DMD+GAN run),
+follow [DMD_ONLY_SEED_REPEAT.md](DMD_ONLY_SEED_REPEAT.md). Keep this original
+paired experiment and its seed-48491 results unchanged.
+
 This experiment trains **both** arms with the unmodified official
 `Aurora-edu/One-Forcing` training implementation at
 `main@c9a2350e8740531562011fc9618e1a928d911ae0`. The DMD+GAN arm uses
