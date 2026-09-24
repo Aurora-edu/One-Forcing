@@ -9,7 +9,16 @@ from pathlib import Path
 
 import torch
 from einops import rearrange
-from torchvision.io import write_video
+try:
+    from torchvision.io import write_video
+except ImportError:
+    # torchvision>=0.24 (needed here for cu128/Blackwell sm_100 support; see
+    # requirements deviation note) removed the torchvision.io video read/write
+    # API entirely, so the symbol is gone rather than raising at call time.
+    # write_video_with_fallback() below already has an imageio-based fallback
+    # for the "PyAV backend missing" case; route through it unconditionally
+    # when the symbol itself doesn't exist.
+    write_video = None
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
@@ -117,6 +126,11 @@ class CachedPromptTextEncoder(torch.nn.Module):
 
 def write_video_with_fallback(output_path: str, frames: torch.Tensor, fps: int):
     frames = frames.clamp(0, 255).to(torch.uint8)
+    if write_video is None:
+        import imageio.v2 as imageio
+
+        imageio.mimsave(output_path, frames.numpy(), fps=fps, macro_block_size=1)
+        return
     try:
         write_video(output_path, frames, fps=fps)
     except ImportError as exc:

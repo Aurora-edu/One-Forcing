@@ -278,6 +278,9 @@ def audit_run(
         "protocol": protocol,
         "scores": scores,
         "normalized_aggregates": totals,
+        "disclosed_environment_deviations": scoring.get(
+            "disclosed_environment_deviations", {}
+        ),
     }
 
 

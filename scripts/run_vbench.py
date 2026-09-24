@@ -34,7 +34,40 @@ DEFAULT_DIMENSIONS = [
 ]
 
 
-def validate_vbench_versions() -> None:
+# Disclosed, user-approved environment deviation for the ICLR2027 rebuttal
+# VBench runs only: the pinned torch==2.5.1/torchvision==0.20.1 (cu124) build
+# has no CUDA kernels for B200 (sm_100) hardware and cannot execute at all on
+# this cluster, so this run uses the cu128 build installed for generation
+# instead (see requirements.txt / requirements-vbench.txt deviation notes).
+# Every other pinned package below is still enforced exactly, and any
+# torch/torchvision version other than this specific disclosed one is still
+# rejected -- this is not a blanket bypass of the check.
+DISCLOSED_TORCH_DEVIATION = {"torch": "2.11.0", "torchvision": "0.26.0"}
+
+# Direct consequence of the disclosed torch 2.11.0 deviation above: torch>=2.6
+# changed torch.load's default from weights_only=False to weights_only=True,
+# which rejects vendored vbench checkpoints (DINO/AMT/RAFT/GRIT/ViCLIP/UMT/
+# tag2text/CLIP state dicts) that pickle plain stdlib containers such as
+# typing.OrderedDict, causing `_pickle.UnpicklingError: Weights only load
+# failed`. All of these auxiliary scorer checkpoints were downloaded from
+# their official upstream/HuggingFace-mirror sources and verified as valid
+# torch state dicts by hand this session (see protocol notes); none of them
+# are the model under evaluation. Restoring the pre-2.6 default here only for
+# this scoring entry point -- not globally, not for the evaluated model's own
+# checkpoint loading in the main training/inference code -- lets vbench's
+# unmodified vendored loaders work again without patching vendored files.
+_ORIGINAL_TORCH_LOAD = torch.load
+
+
+def _torch_load_weights_only_false_default(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _ORIGINAL_TORCH_LOAD(*args, **kwargs)
+
+
+torch.load = _torch_load_weights_only_false_default
+
+
+def validate_vbench_versions() -> dict:
     expected = {
         "torch": "2.5.1",
         "torchvision": "0.20.1",
@@ -44,9 +77,13 @@ def validate_vbench_versions() -> None:
         "numpy": "1.24.4",
     }
     mismatches = {}
+    deviations = {}
     for package, wanted in expected.items():
         found = package_version(package).split("+", 1)[0]
         if found != wanted:
+            if DISCLOSED_TORCH_DEVIATION.get(package) == found:
+                deviations[package] = {"found": found, "expected": wanted}
+                continue
             mismatches[package] = (found, wanted)
     if mismatches:
         raise RuntimeError(
@@ -56,6 +93,7 @@ def validate_vbench_versions() -> None:
                 for name, (found, wanted) in mismatches.items()
             )
         )
+    return deviations
 
 
 def discover_videos(videos_path: str) -> list[Path]:
@@ -260,7 +298,17 @@ def main():
     if args.samples_per_prompt < 1 or args.samples_per_prompt > 5:
         raise ValueError("--samples_per_prompt must be in [1, 5]")
 
-    validate_vbench_versions()
+    environment_deviations = validate_vbench_versions()
+    environment_deviations["torch_load_weights_only_default"] = {
+        "found": "False (restored for this scoring process)",
+        "expected": "True (torch>=2.6 default)",
+        "reason": (
+            "downstream consequence of the disclosed torch 2.11.0 deviation; "
+            "restores pre-2.6 torch.load default so vbench's vendored, "
+            "officially-sourced auxiliary scorer checkpoints (not the "
+            "evaluated model) can be unpickled unmodified"
+        ),
+    }
     videos = discover_videos(args.videos_path)
     if args.mode == "vbench_standard":
         validate_standard_coverage(
@@ -313,6 +361,19 @@ def main():
             name=args.name,
             dimension_list=args.dimensions,
             mode=args.mode,
+            # local=True routes vbench's CLIP (background_consistency,
+            # aesthetic_quality, appearance_style) and DINO (subject_consistency)
+            # auxiliary-model loads through vbench's own CACHE_DIR-gated download
+            # path (see vbench/utils.py:init_submodules), which honors this
+            # process's VBENCH_CACHE_DIR env var. Without this, vbench's default
+            # local=False instead calls clip.load()/torch.hub.load() directly,
+            # which use their own libraries' shared default caches under the job
+            # user's home directory regardless of VBENCH_CACHE_DIR -- reintroducing
+            # the exact concurrent-job cache race/timeout this env var was set up
+            # to avoid. This only changes which cache directory vbench's unmodified
+            # vendored auxiliary-scorer loaders read from; it does not change any
+            # model weights, scoring logic, or the evaluated model's own loading.
+            local=True,
         )
         if distributed:
             barrier()
@@ -335,6 +396,7 @@ def main():
                             and args.samples_per_prompt == 5
                         ),
                         "dimensions": args.dimensions,
+                        "disclosed_environment_deviations": environment_deviations,
                     },
                     stream,
                     indent=2,
