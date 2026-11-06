@@ -132,7 +132,7 @@ class Trainer:
                 dir=config.wandb_save_dir,
             )
 
-        self.model = OneForcing(config, device=self.device)
+        self.model = self._build_model(config)
         self.prompt_embedding_cache = None
         if getattr(config, "prompt_embedding_cache_path", ""):
             self.prompt_embedding_cache = PromptEmbeddingLMDBCache(config.prompt_embedding_cache_path)
@@ -318,6 +318,10 @@ class Trainer:
         self.max_grad_norm_generator = getattr(config, "max_grad_norm_generator", 10.0)
         self.max_grad_norm_critic = getattr(config, "max_grad_norm_critic", 10.0)
         self.previous_time = None
+
+    def _build_model(self, config):
+        """Subclass extension point; the default training path is unchanged."""
+        return OneForcing(config, device=self.device)
 
     def _build_dataset(
         self,
