@@ -13,6 +13,7 @@ import argparse
 import gc
 import hashlib
 import json
+import math
 import os
 import random
 import sys
@@ -24,7 +25,7 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from omegaconf import OmegaConf
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, Subset
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -171,6 +172,53 @@ def select_adjacent_training_pair(
     )
 
 
+def require_finite(tensor, phase):
+    flag = (~torch.isfinite(tensor).all()).to(torch.int32)
+    if dist.is_initialized():
+        dist.all_reduce(flag, op=dist.ReduceOp.MAX)
+    if flag.item():
+        raise FloatingPointError(f"nonfinite CD {phase} on at least one rank")
+
+
+def backward_cd_objective(generator, target_generator, trajectory, timesteps,
+                          conditioning, pair_index, frames, endpoint_weight=0.):
+    """Accumulate (L_CD + w L_endpoint)/(1+w), without retaining two graphs.
+
+    w=0 preserves the historical objective. At w>0 every optimizer update
+    includes direct highest-noise supervision, while CD retains exposure to
+    the intervened interior states. Both losses use the same clean history.
+    """
+    if not math.isfinite(endpoint_weight) or endpoint_weight < 0:
+        raise ValueError("endpoint weight must be finite and nonnegative")
+    high, low, clean, high_t, low_t = select_adjacent_training_pair(
+        trajectory, timesteps, pair_index=pair_index, training_num_frames=frames)
+    def times(value):
+        return torch.full(high.shape[:2], value, dtype=torch.float32, device=high.device)
+    with torch.no_grad():
+        target = low if low_t == 0 else target_generator(
+            noisy_image_or_video=low, conditional_dict=conditioning,
+            timestep=times(low_t), clean_x=clean)[1].detach()
+    prediction = generator(noisy_image_or_video=high, conditional_dict=conditioning,
+                           timestep=times(high_t), clean_x=clean)[1]
+    cd_loss = F.mse_loss(prediction.float(), target.float())
+    require_finite(cd_loss, "consistency loss")
+    (cd_loss / (1 + endpoint_weight)).backward()
+    cd_value = cd_loss.detach()
+    del prediction, cd_loss, target
+    endpoint_value = torch.zeros_like(cd_value)
+    if endpoint_weight > 0:
+        prediction = generator(noisy_image_or_video=trajectory[:, 0, :frames],
+            conditional_dict=conditioning, timestep=times(float(timesteps[0])), clean_x=clean)[1]
+        endpoint_loss = F.mse_loss(prediction.float(), trajectory[:, -2, :frames].float())
+        require_finite(endpoint_loss, "endpoint loss")
+        (endpoint_weight * endpoint_loss / (1 + endpoint_weight)).backward()
+        endpoint_value = endpoint_loss.detach()
+    return {"loss": (cd_value + endpoint_weight * endpoint_value) / (1 + endpoint_weight),
+        "cd_loss": cd_value, "endpoint_loss": endpoint_value,
+        "high_timestep": high_t, "low_timestep": low_t,
+        "target_kind": "boundary_identity" if low_t == 0 else "ema_bootstrap"}
+
+
 def load_raw_initial_state(module, checkpoint_path: Path) -> None:
     """Load the exact raw state before applying the repository's FSDP wrapper."""
     initial_state = load_generator_state(str(checkpoint_path), use_ema=False)
@@ -248,6 +296,9 @@ def validate_config(config) -> None:
         and str(config.text_encoder_fsdp_wrap_strategy) == "none"
     ):
         raise ValueError("Memory-efficient initialization requires a sharded text encoder")
+    if getattr(config, "iclr_cd_profile", None):
+        from experiments.iclr.cd_protocol import validate_one_step_config
+        validate_one_step_config(config)
 
 
 def main() -> None:
@@ -284,7 +335,11 @@ def main() -> None:
     dataset_manifest_path = data_path / MANIFEST_NAME
     dataset_manifest = json.loads(dataset_manifest_path.read_text(encoding="utf-8"))
     source_checkpoint = Path(dataset_manifest["generator_ckpt"]).resolve()
-    if source_checkpoint != generator_ckpt:
+    initial_sha256 = None
+    if getattr(config, "iclr_cd_profile", None):
+        from experiments.iclr.cd_protocol import verify_ar_source
+        initial_sha256 = verify_ar_source(generator_ckpt, dataset_manifest)
+    elif source_checkpoint != generator_ckpt:
         raise ValueError(
             "The ODE source checkpoint and training initialization must be identical: "
             f"dataset={source_checkpoint}, argument={generator_ckpt}"
@@ -307,6 +362,14 @@ def main() -> None:
     torch.backends.cudnn.allow_tf32 = True
     set_fixed_seed(int(config.seed), rank)
 
+    endpoint_weight = float(getattr(config, "endpoint_loss_weight", 0.))
+    objective_name = ("adjacent_cd_plus_endpoint_l2" if endpoint_weight > 0
+                      else "adjacent_state_consistency_l2")
+    heldout = int(getattr(config, "holdout_rows", 0))
+    extra_metadata = {"iclr_cd_profile": getattr(config, "iclr_cd_profile", None),
+        "initial_generator_sha256": initial_sha256, "endpoint_loss_weight": endpoint_weight,
+        "holdout_row_indices": list(range(heldout)), "history_conditioning": "teacher_forcing_clean",
+        "config": OmegaConf.to_container(config, resolve=True)}
     if is_main:
         output_dir.mkdir(parents=True, exist_ok=True)
         atomic_write_json(
@@ -314,6 +377,7 @@ def main() -> None:
             {
                 "schema_version": 2,
                 "experiment": "curvature_adjacent_consistency_distillation",
+                **extra_metadata,
                 "intervention": args.intervention,
                 "config": OmegaConf.to_container(config, resolve=True),
                 "config_path": str(config_path),
@@ -327,7 +391,7 @@ def main() -> None:
                 "world_size": world_size,
                 "training_num_frames": int(config.training_num_frames),
                 "framewise": True,
-                "training_objective": "adjacent_state_consistency_l2",
+                "training_objective": objective_name,
                 "target_network": "in_training_ema_stop_gradient",
                 "target_ema_decay": float(config.target_ema_decay),
                 "evaluation_use_ema": False,
@@ -347,13 +411,16 @@ def main() -> None:
     num_pairs = len(ode_timesteps) - 1
     if num_pairs < 1 or ode_timesteps[-1] != 0.0:
         raise ValueError(f"Expected a trajectory ending at timestep zero: {ode_timesteps}")
+    from experiments.iclr.cd_protocol import split_rows
+    train_rows, _ = split_rows(len(dataset), heldout)
+    training_dataset = Subset(dataset, train_rows)
     global_batch = int(config.batch_size) * world_size
-    if len(dataset) < global_batch:
+    if len(training_dataset) < global_batch:
         raise ValueError(
             f"Dataset has {len(dataset)} rows but global batch size is {global_batch}"
         )
     sampler = DistributedSampler(
-        dataset,
+        training_dataset,
         num_replicas=world_size,
         rank=rank,
         shuffle=True,
@@ -362,7 +429,7 @@ def main() -> None:
     )
     sampler.set_epoch(0)
     loader = DataLoader(
-        dataset,
+        training_dataset,
         batch_size=int(config.batch_size),
         sampler=sampler,
         num_workers=int(config.dataloader_num_workers),
@@ -396,6 +463,7 @@ def main() -> None:
     metadata = {
         "schema_version": 2,
         "experiment": "curvature_adjacent_consistency_distillation",
+        **extra_metadata,
         "intervention": args.intervention,
         "initial_generator_ckpt": str(generator_ckpt),
         "data_path": str(data_path),
@@ -410,7 +478,7 @@ def main() -> None:
             for index in range(num_pairs)
         ],
         "pair_schedule": "deterministic_low_to_high_sweep",
-        "training_objective": "adjacent_state_consistency_l2",
+        "training_objective": objective_name,
         "target_network": "in_training_ema_stop_gradient",
         "target_ema_decay": float(config.target_ema_decay),
         "evaluation_use_ema": False,
@@ -418,6 +486,9 @@ def main() -> None:
     metrics_path = output_dir / "metrics.jsonl"
     sample_order_digest = hashlib.sha256()
     start_time = time.time()
+    if bool(getattr(config, "save_initial_checkpoint", False)):
+        save_raw_checkpoint(generator, output_dir, 0, metadata)
+        dist.barrier()
     for step in range(1, int(config.max_steps) + 1):
         step_start = time.time()
         batch, iterator, epoch = next_batch(iterator, loader, sampler, epoch)
@@ -428,53 +499,22 @@ def main() -> None:
         dist.all_gather(gathered_row_indices, local_row_indices)
         global_row_indices = torch.cat(gathered_row_indices).cpu().tolist()
         pair_index = adjacent_pair_index(step, num_pairs)
-        high_state, low_state, clean_conditioning, high_t, low_t = (
-            select_adjacent_training_pair(
-                trajectory,
-                dataset.selected_timesteps,
-                pair_index=pair_index,
-                training_num_frames=training_num_frames,
-            )
-        )
-        batch_size, num_frames = high_state.shape[:2]
-        high_timestep = torch.full(
-            (batch_size, num_frames), high_t, device=device, dtype=torch.float32
-        )
-        low_timestep = torch.full(
-            (batch_size, num_frames), low_t, device=device, dtype=torch.float32
-        )
-
         with torch.no_grad():
             conditioning = text_encoder(text_prompts=prompts)
-            if low_t == 0.0:
-                target = low_state
-                target_kind = "boundary_identity"
-            else:
-                _, target = target_generator(
-                    noisy_image_or_video=low_state,
-                    conditional_dict=conditioning,
-                    timestep=low_timestep,
-                    clean_x=clean_conditioning,
-                )
-                target = target.detach()
-                target_kind = "ema_bootstrap"
-
         optimizer.zero_grad(set_to_none=True)
-        _, prediction = generator(
-            noisy_image_or_video=high_state,
-            conditional_dict=conditioning,
-            timestep=high_timestep,
-            clean_x=clean_conditioning,
-        )
-        loss = F.mse_loss(prediction.float(), target.float(), reduction="mean")
-        loss.backward()
+        objective = backward_cd_objective(generator, target_generator, trajectory,
+            dataset.selected_timesteps, conditioning, pair_index,
+            training_num_frames, endpoint_weight)
         grad_norm = generator.clip_grad_norm_(float(config.max_grad_norm))
+        require_finite(grad_norm, "gradient norm")
         optimizer.step()
         update_ema_target(generator, target_generator, float(config.target_ema_decay))
-
-        reduced = torch.stack((loss.detach().float(), grad_norm.detach().float()))
+        reduced = torch.stack((objective["loss"].float(), grad_norm.detach().float(),
+                               objective["cd_loss"].float(), objective["endpoint_loss"].float()))
         dist.all_reduce(reduced, op=dist.ReduceOp.SUM)
         reduced /= world_size
+        high_t, low_t = objective["high_timestep"], objective["low_timestep"]
+        target_kind = objective["target_kind"]
         if is_main:
             sample_order_digest.update(
                 f"{step}:".encode("ascii")
@@ -491,6 +531,10 @@ def main() -> None:
                 "target_kind": target_kind,
                 "loss": float(reduced[0].item()),
                 "grad_norm": float(reduced[1].item()),
+                "cd_loss": float(reduced[2].item()),
+                "endpoint_loss": float(reduced[3].item()),
+                "endpoint_loss_weight": endpoint_weight,
+                "endpoint_updates": step if endpoint_weight > 0 else 0,
                 "seconds": time.time() - step_start,
                 "elapsed_seconds": time.time() - start_time,
                 "intervention": args.intervention,
@@ -501,7 +545,7 @@ def main() -> None:
                 print(
                     f"[{args.intervention}] step={step}/{int(config.max_steps)} "
                     f"pair={high_t:g}->{low_t:g} target={target_kind} "
-                    f"loss={record['loss']:.8f} grad_norm={record['grad_norm']:.6f} "
+                    f"loss={record['loss']:.8f} cd={record['cd_loss']:.8f} endpoint={record['endpoint_loss']:.8f} grad_norm={record['grad_norm']:.6f} "
                     f"seconds={record['seconds']:.2f}",
                     flush=True,
                 )

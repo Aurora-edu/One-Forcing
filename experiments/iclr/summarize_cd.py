@@ -22,17 +22,19 @@ def summarize(root):
                     or cell["samples_per_prompt"] != 1 or cell["num_prompts"] != 944):
                 raise ValueError(f"invalid paired CD protocol: {name}")
             identity = tuple(cell[k] for k in ("manifest_sha256", "prompt_sha256", "full_info_sha256"))
+            identity += (json.dumps(cell.get("cd_pair_controls"), sort_keys=True), cell.get("cd_checkpoint_step"))
             if pairing is None:
                 pairing = identity
             if identity != pairing:
-                raise ValueError("CD cells use different prompts, generation seeds or VBench metadata")
+                raise ValueError("CD cells use different training controls, prompts, seeds or VBench metadata")
             scores = load_vbench_results(directory / "vbench" / f"{name}_eval_results.json")
             totals = official_totals(scores)
             if totals is None:
                 raise ValueError("all 16 dimensions are required")
             scores.update(totals)
             by_cell[arm, schedule] = scores
-            records.append({"arm": arm, "schedule": schedule, "checkpoint": cell["checkpoint"], **scores})
+            records.append({"arm": arm, "schedule": schedule, "checkpoint": cell["checkpoint"],
+                "cd_profile": (cell.get("cd_pair_controls") or {}).get("iclr_cd_profile", "legacy_unspecified"), **scores})
     for arm in ("original", "rectified"):
         paths = {r["checkpoint"] for r in records if r["arm"] == arm}
         if len(paths) != 1:

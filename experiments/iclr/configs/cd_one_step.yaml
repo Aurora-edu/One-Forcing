@@ -1,0 +1,13 @@
+# New controlled experiment; the historical 9-frame CD config stays unchanged.
+_base_: ../../rebuttal/configs/train_curvature_cd_small.yaml
+iclr_cd_profile: endpoint_anchored_cd_v1
+iclr_cd_mode: formal
+seed: 0
+max_steps: 300
+training_num_frames: 21
+endpoint_loss_weight: 1.0
+holdout_rows: 64
+checkpoint_interval: 50
+save_initial_checkpoint: true
+print_interval: 10
+required_generator_sha256: 721ea4d8f6d23099ccbefc6f5741b170402f509738f5a7b2db10e91b76857825

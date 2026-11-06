@@ -2,6 +2,10 @@
 
 本文件记录 2026-11-06 对用户 PDF、仓库历史脚本和公开模型资产的核查。保持当前训练范围：frame/chunk 各两个 seed、每组 200 iterations；CD 两组各 300 updates。历史结果不是本轮新测量，旧 CD 成品权重尚未找到。
 
+## 当前新实验选择
+
+用户已指定新实验的初始化和轨迹源为 Causal-Forcing `checkpoints/framewise/ar_diffusion.pt`（下表固定 SHA256），并选择严格轨迹配对与留出历史诊断。当前配置使用 21 帧、每步端点监督、seed=0、各 300 updates，详见 [CD 一步实验设计](ICLR_CD_ONE_STEP_DESIGN.md)。这是明确的新实验选择，不能反推历史 Table 1 的输入文件。下面的 9 帧/纯 CD/seed=2026 只描述历史设置。
+
 ## 原实验已经定位
 
 PDF 第 5 页 Table 1 与第 18 页 Appendix B 描述 original/rectified 两个 300-step checkpoint 的四步评测。对应实现为：
@@ -11,7 +15,7 @@ PDF 第 5 页 Table 1 与第 18 页 Appendix B 描述 original/rectified 两个 
 - [原运行入口](../experiments/rebuttal/run_curvature_cd_small.sh)：未覆盖训练 seed；同一对 checkpoint 分别评 all1/all4，944 个原始 prompts、每 prompt 一个样本、全部 16 维，不开 FFE。
 - [训练代码](../experiments/rebuttal/train_curvature_cd.py)：online 与 target 从同一 raw 因果模型初始化，且该模型必须与生成轨迹的模型一致。
 
-上述训练代码、配置和入口与历史报告记录的实验起始提交 `37317379e8009e4f61f2e671ee156d47d98d1157` 一致。当前 ICLR 封装显式使用 seed=0，属于新受控重跑；不要把生成 seed=0 与历史配置中的 training seed=2026 混淆，也不能仅凭配置推断未归档的运行时覆盖。
+上述历史配置与入口可追溯到实验起始提交 `37317379e8009e4f61f2e671ee156d47d98d1157`；当前 trainer 增加了端点监督可选分支，旧配置默认 weight=0，保留旧目标。当前 ICLR 封装显式使用 seed=0，属于新受控重跑；不要把生成 seed=0 与历史配置中的 training seed=2026 混淆，也不能仅凭配置推断未归档的运行时覆盖。
 
 ## 已归档的历史结果
 
@@ -46,6 +50,6 @@ PDF 第 5 页 Table 1 与第 18 页 Appendix B 描述 original/rectified 两个 
 4. [curvature_intervention.py](../experiments/rebuttal/curvature_intervention.py) 的 loader 为 rectified 组按时间线性化三个中间状态，保持噪声、生成终点、clean conditioning 和 prompt 一致；不独立采样第二套轨迹。
 5. 两个 CD arm 都从生成这份轨迹的同一 raw 模型开始训练，并核对数据顺序和配对信息。
 
-现成数据准备入口是 [run_curvature_causal_experiment.sh](../experiments/rebuttal/run_curvature_causal_experiment.sh) 的 **`prepare` 阶段**。该脚本的 `all` 还会执行另一套 1,000-step endpoint-regression 实验，不属于本轮 300-step CD 计划。数据准备完成后切换到 `run_curvature_cd_small.sh` 或 ICLR CD 入口。长 GPU 工作须在训练机独立 tmux 中执行并检查实际视频。
+现成数据准备入口是 [run_curvature_causal_experiment.sh](../experiments/rebuttal/run_curvature_causal_experiment.sh) 的 **`prepare` 阶段**。该脚本的 `all` 还会执行另一套 1,000-step endpoint-regression 实验，不属于本轮 300-step CD 计划。本轮数据准备完成后切换到新的 ICLR CD 入口；`run_curvature_cd_small.sh` 留作历史流程参考，不用于当前计划。长 GPU 工作须在训练机独立 tmux 中执行并检查实际视频。
 
 重建流程不依赖找回旧成品权重；精确复现历史数值仍需要核实原初始化和运行记录。当前主任务优先完成 frame/chunk 四组，CD 仍保留两个正式 run 的范围，不因这些历史记录自动增加或取消训练。

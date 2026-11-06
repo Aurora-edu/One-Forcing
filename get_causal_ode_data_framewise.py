@@ -9,6 +9,7 @@ import torch
 import math
 import os
 import json
+import hashlib
 from utils.dataset import LatentLMDBDataset
 from scripts.export_videos import load_generator_state
 
@@ -72,6 +73,17 @@ def main():
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
+    # Hash once on rank 0, then share identity with every trajectory shard.
+    identity = [None]
+    if global_rank == 0:
+        digest = hashlib.sha256()
+        with open(args.generator_ckpt, "rb") as stream:
+            for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                digest.update(block)
+        identity[0] = digest.hexdigest()
+    dist.broadcast_object_list(identity, src=0)
+    checkpoint_sha256 = identity[0]
+
     model, encoder, scheduler, unconditional_dict = init_model(device=device)
     state_dict = load_generator_state(args.generator_ckpt, use_ema=args.use_ema)
     model.load_state_dict(state_dict, strict=True, assign=True)
@@ -97,6 +109,7 @@ def main():
                     "schema_version": 1,
                     "rawdata_path": os.path.realpath(args.rawdata_path),
                     "generator_ckpt": os.path.realpath(args.generator_ckpt),
+                    "generator_checkpoint_sha256": checkpoint_sha256,
                     "guidance_scale": args.guidance_scale,
                     "seed": args.seed,
                     "num_trajectories": dataset_size,
@@ -193,6 +206,7 @@ def main():
                 "selected_timesteps": selected_timesteps,
                 "guidance_scale": args.guidance_scale,
                 "generator_ckpt": os.path.realpath(args.generator_ckpt),
+                "generator_checkpoint_sha256": checkpoint_sha256,
                 "use_ema": args.use_ema,
                 "weight_source": "generator_ema" if args.use_ema else "generator",
             },

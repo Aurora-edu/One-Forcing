@@ -1,10 +1,12 @@
-"""Retrain both CD arms from shared initialization for 300 updates by default.
+"""Endpoint-anchored paired CD: pinned AR init, 21 frames, 300 updates per arm.
 
 The reviewer CD trainer does not save optimizer or EMA-target restart state.
 This command therefore NEVER offers resume or extends an old 300-step run.
-Longer 600/900-update runs require an explicit --steps choice.
+Every update includes highest-noise endpoint supervision. History remains
+teacher-forced to preserve the strict paired intervention; diagnose it separately.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 import shlex
@@ -15,6 +17,7 @@ from omegaconf import OmegaConf
 
 from experiments.iclr.launch import parse_gpus, require_idle, start_tmux
 from experiments.iclr.protocol import REPO
+from experiments.iclr.cd_protocol import AR_DEFAULT, validate_one_step_config, validate_done_pair
 from utils.config import load_config
 
 
@@ -27,13 +30,14 @@ def cd_command(python, config, data, checkpoint, output, intervention, seed):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", default=str(REPO / "experiments/rebuttal/configs/train_curvature_cd_small.yaml"))
+    parser.add_argument("--config", default=str(REPO / "experiments/iclr/configs/cd_one_step.yaml"))
     parser.add_argument("--data", required=True, help="paired ODE trajectory LMDB with manifest")
-    parser.add_argument("--generator-ckpt", required=True,
-                        help="shared raw initialization used to generate the paired ODE data; not a trained CD checkpoint")
+    parser.add_argument("--generator-ckpt", default=str(REPO / AR_DEFAULT),
+                        help="published Causal-Forcing framewise/ar_diffusion.pt; SHA256 verified")
     parser.add_argument("--output", default="/data/fengjiaqi/iclr/cd")
-    parser.add_argument("--steps", type=int, choices=(300, 600, 900), default=300,
-                        help="updates per arm (default: 300); longer budgets must be chosen explicitly")
+    parser.add_argument("--steps", type=int, choices=(300,), default=300,
+                        help="fixed formal budget; do not tune it against VBench")
+    parser.add_argument("--smoke", action="store_true", help="two 10-step smoke runs, never formal results")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--prompt-cache", default="")
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
@@ -45,17 +49,20 @@ def main():
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
     config = load_config(args.config)
-    config.max_steps = args.steps
-    config.checkpoint_interval = 300
+    config.max_steps = 10 if args.smoke else args.steps
+    config.checkpoint_interval = 5 if args.smoke else 50
+    config.iclr_cd_mode = "smoke" if args.smoke else "formal"
     config.print_interval = 10
     config.seed = args.seed
     config.prompt_embedding_cache_path = args.prompt_cache
+    validate_one_step_config(config)
     config_path = Path(args.output).resolve() / "configs" / "cd.yaml"
     commands = [cd_command(args.python, config_path, args.data, args.generator_ckpt,
         Path(args.output).resolve() / arm, arm, args.seed) for arm in ("curved", "rectified")]
     for command in commands:
         print(shlex.join(command))
-    print(f"FROM SCRATCH: {args.steps} updates per arm; saves every 300; training frames={config.training_num_frames}; NO resume")
+    print(f"FROM SCRATCH: {config.max_steps} updates per arm; saves every {config.checkpoint_interval}; "
+          f"training frames={config.training_num_frames}; endpoint weight=1; holdout=64; pinned AR init; NO resume")
     if not args.execute and not args.worker:
         return
     if not args.worker:
@@ -66,6 +73,8 @@ def main():
             "--python", args.python, "--gpus", args.gpus, "--worker"]
         if args.prompt_cache:
             argv += ["--prompt-cache", str(Path(args.prompt_cache).resolve())]
+        if args.smoke:
+            argv += ["--smoke"]
         start_tmux(args.session, argv, Path(args.output).resolve() / "logs" / "train.log")
         return
     if not os.environ.get("TMUX"):
@@ -77,6 +86,12 @@ def main():
     for command in commands:
         require_idle(parse_gpus(args.gpus))
         subprocess.run(command, cwd=REPO, env={**os.environ, "CUDA_VISIBLE_DEVICES": args.gpus}, check=True)
+    if not args.smoke:
+        from experiments.iclr.protocol import atomic_json
+        root = Path(args.output).resolve()
+        controls = validate_done_pair(*[json.loads((root / arm / "training.done").read_text())
+                                       for arm in ("curved", "rectified")])
+        atomic_json(root / "paired_training_audit.json", {"status": "pass", "controls": controls})
 
 
 if __name__ == "__main__":

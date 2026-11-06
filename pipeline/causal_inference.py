@@ -101,6 +101,7 @@ class CausalInferencePipeline(torch.nn.Module):
         return_latents: bool = False,
         profile: bool = False,
         return_video: bool = True,
+        context_latents: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
         """
         Perform inference on the given noise and text prompts.
@@ -113,12 +114,19 @@ class CausalInferencePipeline(torch.nn.Module):
                 If num_input_frames is 1, perform image to video.
                 If num_input_frames is greater than 1, perform video extension.
             return_latents (bool): Whether to return the latents.
+            context_latents (torch.Tensor, optional): Diagnostic clean history,
+                cached only after predicting each block. Defaults to own predictions.
         Outputs:
             video (torch.Tensor): The generated video tensor of shape
                 (batch_size, num_output_frames, num_channels, height, width).
                 It is normalized to be in the range [0, 1].
         """
         batch_size, num_frames, num_channels, height, width = noise.shape
+        # Diagnostic only: keep the identical autoregressive sampler, replacing
+        # cached history AFTER each prediction. No current/future target leaks.
+        if context_latents is not None:
+            if initial_latent is not None or context_latents.shape != noise.shape:
+                raise ValueError("diagnostic context must match noise shape and cannot use initial_latent")
         all_num_frames = self._build_rollout_frame_counts(num_frames, initial_latent)
         num_input_frames = initial_latent.shape[1] if initial_latent is not None else 0
         num_output_frames = num_frames + num_input_frames  # add the initial latent frames
@@ -268,7 +276,8 @@ class CausalInferencePipeline(torch.nn.Module):
             context_timestep = torch.ones_like(timestep) * self.args.context_noise
             
             self.generator(
-                noisy_image_or_video=denoised_pred,
+                noisy_image_or_video=(denoised_pred if context_latents is None else
+                    context_latents[:, current_start_frame:current_start_frame + current_num_frames]),
                 conditional_dict=conditional_dict,
                 timestep=context_timestep,
                 kv_cache=self.kv_cache1,

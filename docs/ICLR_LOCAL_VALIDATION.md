@@ -193,3 +193,17 @@ PYTEST
 - CD 历史一步结果、数据重建流程和 seed 2026/当前默认 seed 0 的差异已写入 `ICLR_CD_PROVENANCE.md`，本次未改变 CD 默认训练设置。
 
 这些是 CPU 和静态检查，GPU 训练、真实 FSDP 恢复及视频检查仍需训练机执行。
+
+## 端点监督 CD 与严格历史诊断（当前设置）
+
+用户指定 Causal-Forcing `checkpoints/framewise/ar_diffusion.pt`，并选择“严格配对轨迹 + 历史误差诊断”。当前 CD 配置为 `endpoint_anchored_cd_v1`：两组各 300 updates、seed=0、21 latent frames，每步等权 CD/最高噪声端点损失；保留 teacher forcing，固定前 64 个轨迹行留出。frame/chunk 四个 200 步 run 不变，共 6 个正式 run。
+
+使用上文 CPU bootstrap，显式隐藏 GPU：**125 passed in 35.64s**。相关定向回归在新增评测/数据测试前为 60 passed in 24.30s；最终以全套 125 项为准。`git diff --check`、所改 Python 的语法解析、相关 shell 语法与新增文档本地链接检查通过。
+
+- 检查四种 CD 相邻 pair 的分次 backward 与完整组合目标梯度一致，EMA target 不累积梯度；固定参数下 original/rectified 的端点项相同、CD 项和梯度保留轨迹差异；非有限损失会停止。
+- 检查固定配置、源模型 hash、21 帧数据形状、训练/留出行隔离、两组样本顺序审计；合成源轨迹经真实 LMDB builder 后保留源 hash。
+- 使用真实 `CausalInferencePipeline.inference` 控制流和 tiny CPU generator，验证首帧相同、真实历史仅在预测后缓存、当前/未来 clean latent 不泄漏，以及 forced/free 多次调用之间 cache 重置。
+- 使用合成 checkpoints 检查正式评测前置审计：两组来源和配置一致、固定 raw step-300；错误步数或旧 9 帧元数据被拒绝。
+- 检查诊断逐帧配对覆盖、负 history gap 的保留、CSV/PDF/PNG 导出及无权重/无 GPU 的 CLI dry-run。所有合成数据仅用于测试，不是实验结果。
+
+新增 [CD 详细设计](ICLR_CD_ONE_STEP_DESIGN.md)，同步训练机任务、运行手册、审稿人覆盖和历史来源记录。历史 all1 −1.44 / all4 +9.95 保留，新设置不宣称保证正收益。没有启动 GPU 训练或生成真实视频；8 卡 FSDP、显存、各组前 10 步、真实视频目视检查及 VBench 仍须在训练机执行。没有修改其它 session 的进程。

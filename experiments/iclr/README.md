@@ -190,32 +190,32 @@ INFO=experiments/rebuttal/assets/qwen_vbench/VBench_full_info.json
 
 ## 5. 重训 original/rectified CD，再评测一步与四步
 
-原实验流程、历史一步/四步结果及公开资产入口见 [CD 来源与重建说明](../../docs/ICLR_CD_PROVENANCE.md)。历史配置的 training seed 是 2026，本节 ICLR 命令使用 seed 0，因此是新的受控重跑；不能用本节默认值声称原实验完全同设置。
+**本轮新设置已确定，执行前阅读 [CD 一步实验详细设计](../../docs/ICLR_CD_ONE_STEP_DESIGN.md)。** 两组各 300 updates、seed=0、21 latent frames，从用户指定的 Causal-Forcing `checkpoints/framewise/ar_diffusion.pt` raw 权重初始化，并用相同权重重新生成共享轨迹。与实验 A 的 ODE 初始化区分，不再使用来源待定的路径或旧 9 帧配置。
 
-用户已确认旧 CD 权重找不到，本轮必须重新训练两个 arm：original（代码名 `curved`）与 `rectified`。两组 training seed 均为 0，每组 300 updates；与第 2 节的 4 个 run 合计 **6 个正式训练 run**。all1/all4 共 4 个评测条件，不增加训练次数。
-
-重新训练仍需要配对 ODE 轨迹 LMDB 和生成这份数据的共同 raw 初始化。`CD_INIT` 是这份初始化，不是丢失的 CD 成品权重；它可以与实验 A 的 `ODE_INIT` 相同，但必须先核对数据 manifest。不要因找不到旧 CD 权重而跳过本实验，也不能用来源未知的 checkpoint 替代初始化。
+每次更新使用 `(L_adjacent_CD + L_high_noise_endpoint)/2`，保留严格 original/rectified 配对和相同 teacher-forcing 历史。前 64 个轨迹行留出诊断，其余用于训练。正式配置固定为 `endpoint_anchored_cd_v1`；总训练仍为 6 个 run。历史设置、旧负结果及证据限制保留在 [CD 来源记录](../../docs/ICLR_CD_PROVENANCE.md)。
 
 ```bash
-export CD_DATA=/data/fengjiaqi/paired_cd_trajectory_lmdb
-export CD_INIT=/data/fengjiaqi/checkpoints/verified_cd_ode_source.pt
-export CD_CONFIG=experiments/rebuttal/configs/train_curvature_cd_small.yaml
+export CD_DATA="$ICLR_ROOT/cd_ar_data/data/shared_curvature_lmdb"
+export CD_INIT="$PWD/checkpoints/framewise/ar_diffusion.pt"
+export CD_CONFIG=experiments/iclr/configs/cd_one_step.yaml
 export CD_OUT="$ICLR_ROOT/cd_train/seed0"
 
 "$OF_PY" -m experiments.iclr.cd \
-  --config "$CD_CONFIG" --data "$CD_DATA" \
-  --generator-ckpt "$CD_INIT" --steps 300 --seed 0 \
-  --output "$CD_OUT" --session iclr_cd_seed0 --dry-run
-# 核对两条命令后，将 --dry-run 改成 --execute；自动创建 tmux 并顺序训练两组。
+  --config "$CD_CONFIG" --data "$CD_DATA" --generator-ckpt "$CD_INIT" \
+  --output "$ICLR_ROOT/cd_smoke" --smoke --session iclr_cd_smoke --dry-run
+# smoke 核对后改为 --execute；两组各观察到第 10 步，并按下文运行 --smoke 诊断、检查视频。
+
+"$OF_PY" -m experiments.iclr.cd \
+  --config "$CD_CONFIG" --data "$CD_DATA" --generator-ckpt "$CD_INIT" \
+  --steps 300 --seed 0 --output "$CD_OUT" --session iclr_cd_seed0 --dry-run
+# 核对后改为 --execute；自动 tmux，顺序训练两个 arm。
 ```
 
-该工具复用 review 的 adjacent-consistency trainer，默认已改为 **300 updates/arm**。共享初始化、数据顺序、prompts、初始噪声、ODE 端点、timesteps 和 clean conditioning，只改变轨迹干预。两组各自观察到第 10 步，保存训练日志、配置、数据 manifest 和 sample-order digest；固定使用 step-300，不能看评测结果后挑 checkpoint。
+使用新数据目录，旧 LMDB 没有源权重 SHA256 时须重建，不能补填未经验证的 hash。具体 `prepare` 命令见详细设计；不要运行旧数据脚本的 `all`（会额外执行另一套 1,000-step 实验）。两组训练只改变三个轨迹中间状态，共享噪声、端点、clean conditioning、prompts、初始化、holdout、配置和样本顺序。
 
-默认 `CD_CONFIG` 是旧 small-CD 的 **9 latent frames** 配置，先核对原始实验设置；若不能确认与论文一致，就明确标为新的受控重跑。两个 arm 使用同一配置。`target_ema_decay` 是训练目标网络 EMA，评测仅使用 raw generator；当前 trainer 不保存 optimizer/EMA-target 恢复状态，中断后须从共享初始化重新开始，不支持无缝续训。
+每步写 `metrics.jsonl`，保存 **0、50、100、150、200、250、300** 步 raw generator，训练完成自动审计配对配置和 sample-order digest。固定 step-300 为主结果，不根据中间分数选 checkpoint。target EMA=0.95 仅用于训练目标；评测不使用它。当前 checkpoint 未保存 optimizer/target EMA 恢复状态，中断后需新目录从共同初始化重跑。
 
-输入 LMDB 必须包含 `curvature_dataset_manifest.json`。训练前用 `analyze_curvature_intervention.py` 和 `audit_curvature_cd_design.py` 核对配对干预和 timestep alignment，流程见[旧 CD 说明](../rebuttal/CURVATURE_CD_SMALL.md)。如果 CD 数据也缺失，使用[数据准备入口](../rebuttal/build_curvature_dataset.py)按已核实设置重新生成并审计；普通 clean latent LMDB 和第 6 节的完整双向 teacher 轨迹都不能直接充当此数据。训练后核对两份 `training.done` 的配对字段和 sample-order digest，参考 `audit_curvature_cd_arms.py`。
-
-生成的两个权重路径固定如下。实际检查配对视频后，使用同一评测 manifest 完成四条件 VBench；若调整了训练模型配置，评测配置也要保持对应设置一致。
+先完成两个 arm 的 all1，再做 all4。评测入口拒绝混入旧配置、smoke 或非 step-300 权重：
 
 ```bash
 "$OF_PY" -m experiments.iclr.evaluate cd \
@@ -225,18 +225,24 @@ export CD_OUT="$ICLR_ROOT/cd_train/seed0"
   --prompts "$ICLR_ROOT/manifests/original.txt" \
   --manifest "$ICLR_ROOT/manifests/original_seed0.jsonl" --full-info "$INFO" \
   --output "$ICLR_ROOT/cd_eval/step300" --vbench-python "$VB_PY" --dry-run
-```
+# 核对后改为 --execute，在独立 tmux 中执行。
 
-核对后加 `--execute`；生成四个条件：original/rectified × all1/all4，所有 block 都使用对应步数，不开 FFE。四份完整 16 维 VBench JSON 位于各 cell 的 `vbench/` 下。比较 total/quality/semantic 及 dynamic degree 等维度，实际播放配对视频。单一训练 seed 的结果不能解释为训练稳定性的置信区间。
-
-```bash
 "$OF_PY" -m experiments.iclr.summarize_cd \
   --evaluations "$ICLR_ROOT/cd_eval/step300" --output "$ICLR_ROOT/cd_summary/step300"
 ```
 
-输出 `cd_scores.csv`、`cd_gains.csv` 和 JSON：分别列出四个条件及一步/四步的 rectified-minus-original 差值。总分使用 0–1 单位，论文百分制表格乘 100；这是配对聚合点估计，不是训练 seed 的误差条。
+四条件均为原始 944 prompts × 1、相同生成 seeds、raw 权重、全 16 维、无 FFE。输出 `cd_scores.csv`、`cd_gains.csv`、JSON；分数为 0–1，论文百分制乘 100。单一训练 seed 的聚合增益不是训练 seed 置信区间。历史一步 −1.44 / 四步 +9.95 保留；不能保证新一步结果为正。
 
-本轮不自动增加训练 seeds 或 600/900 步预算。入口仍保留显式 `--steps 600/900`，供以后另定计划时使用；这些运行需新输出目录，并从共同初始化开始训练。所有新结果标明“本轮重训”，不能用仓库历史分数代替本轮评测。
+补充诊断复用相同留出样本、噪声和 KV sampler，对比真实历史与自由生成历史，导出逐帧误差和 learning curves：
+
+```bash
+"$OF_PY" -m experiments.iclr.cd_diagnostics \
+  --training-root "$CD_OUT" --data "$CD_DATA" \
+  --output "$ICLR_ROOT/cd_history_diagnostics" --dry-run
+# 核对后改为 --execute；自动 tmux。smoke 指向 cd_smoke，另加 --smoke，使用独立输出目录。
+```
+
+输出 `per_frame.csv`、`history_curves.csv`、`rectified_minus_original.csv`、`learning_curves.png/pdf`，图包含两项训练 loss、梯度范数和两种历史的 MSE。正式固定前 4 个留出行导出 step-300 配对视频；smoke 前 2 行导出 step-10 视频。必须实际播放检查动态画面；文件可解码不等于视觉正常。history gap 是固定 teacher-forced target 下的历史敏感性，不是总误差的严格因果分解；MSE 不能替代 VBench。
 
 ## 6. 完整 teacher 轨迹与参数化分析
 

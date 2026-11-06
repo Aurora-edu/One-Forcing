@@ -7,7 +7,7 @@
 | 优先级 / 工作 | nPEg | PkyQ | o6Jx | 新训练 |
 |---|---|---|---|---:|
 | P0-A：main 设置，frame/chunk 各 seeds 0、1，R1/R2 全关；固定 200 步，步数曲线 + 第 200 步 EMA 表 | 核心：相同步数/正则控制、两 seed 配对及耗时；未严格匹配 wall-clock | 粒度与实际成本 | 标准 frame 配置第 200 步的两 seed 重复性 | 4 |
-| P0-B：original/rectified CD 各 300 updates，再评 all1/all4 | 一步 rectification | 一步 CD 与四步证据边界 | 一步几何假说的直接检验 | 2 |
+| P0-B：配对端点监督 CD 各 300 updates、21 帧，再评 all1/all4 与历史诊断 | 一步 rectification | 一步 CD 与四步证据边界 | 一步几何假说的直接检验 | 2 |
 | P0-C：时间参数化、弧长和路径几何复核 | 高噪声集中是否依赖坐标 | 收敛几何因果解释 | 收敛高噪声曲率的强结论 | 0 |
 | P1-D：Table 2 各行协议与分数来源核对 | 辅助可信度 | 明确基线是否统一重评 | 解释主表和消融的 prompt 差异 | 0 |
 | P1-E：主模型原始 / Qwen prompts 配对评测；可用基线补原始 prompts | 辅助公平比较 | 基线协议透明度 | 原始 prompts 下的主比较 | 0 |
@@ -21,7 +21,7 @@
 执行细节沿用主任务和[运行手册](../experiments/iclr/README.md)，不扩大训练矩阵：
 
 1. `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，全部固定 200 iterations 后结束，保存 0/50/100/150/200 步。使用 main EMA、梯度 block 计数和 `main_ffe` 推理。实际梯度窗口随 block 大小变为 17/21 帧，要明确披露。
-2. CD `curved`、`rectified`，同一初始化和 seed 0，各 300 updates。旧 CD 权重丢失，必须重训。
+2. CD `curved`、`rectified`，指定 AR diffusion 初始化、seed 0、21 帧，各 300 updates。每步加入等权最高噪声端点监督，保留严格轨迹配对及 teacher forcing，并做留出历史诊断。详见 [新 CD 设计](ICLR_CD_ONE_STEP_DESIGN.md)。旧 CD 权重不再是前置条件。
 
 训练曲线包含 seeds 0、1 的 frame/chunk 配对差值，报告两组差值的均值和样本 SD；两种粒度也分别报告 n=2 的均值、样本 SD 与单次结果。不将两个 seeds 当成大样本显著性证据。报告训练时间、G/critic updates、实际保存时间、初始化与保存开销，并注明 GPU 型号和数量。8 卡训练的 GPU-hours 为 `8 × training_seconds / 3600`；端到端耗时单列，不把排队时间算进训练效率。相同步数不等于相同 wall-clock compute，本轮不声称完成严格等时长对照。
 

@@ -12,8 +12,28 @@ from experiments.iclr.protocol import MAIN_REFERENCE, REPO, atomic_json, sha256_
 def cd_cells(original, rectified, config):
     return [{"name": f"cd_{arm}_{schedule}", "checkpoint": checkpoint,
              "config": config, "method": "framewise", "schedule": schedule}
-            for arm, checkpoint in (("original", original), ("rectified", rectified))
-            for schedule in ("all1", "all4")]
+            for schedule in ("all1", "all4")
+            for arm, checkpoint in (("original", original), ("rectified", rectified))]
+
+
+def audit_cd_checkpoints(original, rectified, config_path):
+    import torch
+    from omegaconf import OmegaConf
+    from utils.config import load_config
+    from experiments.iclr.cd_protocol import validate_done_pair, validate_checkpoint
+    paths = [Path(original), Path(rectified)]
+    done = [json.loads((p.parent.parent / "training.done").read_text()) for p in paths]
+    controls = validate_done_pair(*done)
+    config = load_config(config_path)
+    if (OmegaConf.to_container(config.model_kwargs) != controls["config"]["model_kwargs"]
+            or config.num_frame_per_block != 1 or config.context_noise != 0
+            or config.independent_first_frame or not config.warp_denoising_step):
+        raise ValueError("CD evaluation model/history configuration differs from training protocol")
+    for path, run in zip(paths, done):
+        checkpoint = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+        validate_checkpoint(checkpoint, run, 300)
+        del checkpoint
+    return {"cd_pair_controls": controls, "cd_checkpoint_step": 300}
 
 
 def curve_cells(index, config, reference_step=None):
@@ -137,6 +157,10 @@ def main():
     if not args.execute:
         print("DRY RUN: curve=main_ffe/EMA/Qwen; CD=raw/all1+all4/original; no GPU/model access")
         return
+    if args.kind == "cd":
+        provenance = audit_cd_checkpoints(args.original, args.rectified, args.config)
+        for cell in cells:
+            cell.update(provenance)
     from experiments.iclr.launch import parse_gpus, require_idle
     require_idle(parse_gpus(args.gpus))
     if args.kind == "curve":

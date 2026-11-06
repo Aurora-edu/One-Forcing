@@ -26,6 +26,12 @@ CONTROLLED_FIELDS = (
     "evaluation_use_ema",
     "final_step",
     "global_sample_order_sha256",
+    "iclr_cd_profile",
+    "initial_generator_sha256",
+    "endpoint_loss_weight",
+    "holdout_row_indices",
+    "history_conditioning",
+    "config",
 )
 
 

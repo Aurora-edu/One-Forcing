@@ -4,7 +4,7 @@
 
 **最新范围：实验 A 跑 4 个正式训练 run，依次为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全部关闭，四组都固定 200 iterations 后结束，保存 0/50/100/150/200 步，不按时间预算延长。用户已新增 chunk seed 1，用于两组 seed 的 frame/chunk 配对比较。旧 3-run / 12-run 配置已不适用，必须在新目录重新生成；不增加正则开启或 seed 2 的训练。**
 
-**CD 权重已确认找不到，实验 B 必须重训 original/rectified，各 300 updates、training seed 0，共 2 个 run。A+B 合计 6 个正式训练 run；CD 的 all1/all4 是 4 个评测条件，不是 4 次训练。**
+**CD 权重已确认找不到，实验 B 必须重训 original/rectified，各 300 updates、training seed 0，共 2 个 run。A+B 合计 6 个正式训练 run；CD 的 all1/all4 是 4 个评测条件，不是 4 次训练。用户已指定 AR diffusion 初始化，并确认“严格轨迹对照 + 历史诊断”，详见 [CD 一步实验设计](ICLR_CD_ONE_STEP_DESIGN.md)。**
 
 **CD 核查更新：论文 Table 1 对应的历史脚本、配置和汇总结果已经找到，历史记录还包含同一对 step-300 checkpoint 的一步评测。详见[CD 来源与重建说明](ICLR_CD_PROVENANCE.md)。旧配置 seed=2026，当前 ICLR 封装默认 seed=0，必须将后者标为新受控重跑，不能称为原设置的精确复现。旧成品权重丢失不代表实验流程丢失；共享初始化和轨迹数据可以重新准备。**
 
@@ -44,7 +44,7 @@
 - Wan2.1-T2V-14B teacher。
 - 真实视频 latent LMDB。
 - 有训练来源记录的 raw causal ODE 初始化。
-- CD 原始训练配置、共享 raw 初始化，以及含 `curvature_dataset_manifest.json` 的配对 ODE 轨迹 LMDB。旧 original/rectified CD 权重已丢失，改为重训，不再把找回它们作为前置条件。
+- CD 使用新的 `experiments/iclr/configs/cd_one_step.yaml`，初始化及轨迹源均为指定的 Causal-Forcing `checkpoints/framewise/ar_diffusion.pt`，核对固定 SHA256；LMDB manifest 必须含源模型 hash。旧 CD 成品权重不再是前置条件。
 
 所有 frame/chunk 对照必须使用同一份已确认的 raw 初始化。不能仅凭文件名认定身份，也不能默认将 `/data/fengjiaqi/model.pt` 当作 ODE 初始化。
 
@@ -105,24 +105,26 @@
 
 完整曲线汇总自动输出 `step200_seed_summary.csv`，含两个 frame seeds 的 EMA 结果，无需重复评测。只需终点时可选择 `evaluate curve --reference-step 200` 和 `summarize --reference-step 200`。历史 rewrite/随机流未归档，因此不以“必须恰好达到 83.76”作为验收标准。未完成或发散的 seed 必须如实报告。
 
-## 四、正式实验 B：重训 original/rectified CD，再评测一步与四步
+## 四、正式实验 B：端点监督 CD 与严格配对诊断
 
-用户已确认旧 CD 权重找不到。使用 `experiments.iclr.cd` 从同一份已核实的 raw 初始化开始，重新训练以下两组，不从丢失的 CD checkpoint 续训：
+执行 [CD 一步实验详细设计](ICLR_CD_ONE_STEP_DESIGN.md) 和[运行手册第 5 节](../experiments/iclr/README.md#5-重训-originalrectified-cd再评测一步与四步)，其中给出数据准备、smoke、训练、评测和诊断命令。
 
-| 组别 | 代码中的 intervention / 目录 | training seed | 更新数 |
-|---|---|---:|---:|
-| Original | `curved` | 0 | 300 |
-| Rectified | `rectified` | 0 | 300 |
+| 组别 | intervention | training seed | updates | latent frames |
+|---|---|---:|---:|---:|
+| Original | `curved` | 0 | 300 | 21 |
+| Rectified | `rectified` | 0 | 300 | 21 |
 
-两组只改变轨迹干预，共享初始化、prompts、初始噪声、ODE 端点、clean conditioning、timesteps、数据顺序及训练配置。`--generator-ckpt` 指配对轨迹数据的原始 raw 初始化，不是丢失的已训练 CD 权重。先核实这份初始化与轨迹 LMDB 的来源和配对关系；若轨迹也缺失，按仓库 CD 数据流程重新准备，不能用普通真实视频 latent 或实验 C 的完整 teacher 轨迹替代。
+用户已指定从 Causal-Forcing 的 `checkpoints/framewise/ar_diffusion.pt` raw 初始化，并用同一权重重新生成配对轨迹。固定源模型 SHA256，不把 A 的 `causal_ode.pt` 或丢失的 CD 成品权重混用。旧数据缺少源 hash 时重新采集，不猜测或补写来源。
 
-两组在独立 tmux 中顺序训练，各自至少盯到第 10 步。固定使用 step-300 raw generator，输出分别为 `cd_train/seed0/curved/checkpoint_model_000300/model.pt` 和 `cd_train/seed0/rectified/checkpoint_model_000300/model.pt`。保留配置、数据 manifest、sample-order digest、训练日志和权重来源；训练完成后核对两组配对信息并实际检查视频。
+两个 arm 每次更新都用 `(L_adjacent_CD + L_high_noise_endpoint)/2`。仅三个中间轨迹状态不同；噪声、teacher 端点、clean conditioning、prompts、初始化、holdout、训练配置和数据顺序一致。保持 teacher forcing，以保留跨组固定端点；不能把本次称为完全消除了训推历史差异。21 帧、端点监督和留出集是新设置，不能把它包装为旧 9 帧纯 CD 的精确复现。
 
-然后评测四个条件：Original × all1、Original × all4、Rectified × all1、Rectified × all4。统一原始 prompts、生成 seeds、raw 权重和全 16 维评测。all1 必须所有 block 都一步，禁止开启 FFE。使用 `experiments.iclr.evaluate cd` 和 `summarize_cd` 生成四条件表及配对增益，检查对应视频的运动冻结、结构崩溃和视觉质量。单一训练 seed 的配对聚合增益不能解释为训练 seed 的置信区间。
+先各跑 10 步 smoke 并检查视频，再各跑 300 步正式训练，每次均在独立 tmux 观察到至少第 10 步。逐步保存 loss、梯度和耗时；检查点为 0、50、100、150、200、250、300，主结果固定 step-300 raw generator。训练 target EMA 不用于评测。保存完整配置、数据 manifest、源 hash、sample-order digest 和配对审计文件；checkpoint 不含 optimizer/target EMA 恢复状态，中断需从共同初始化重跑。
 
-本轮只要求这 2 个 seed-0、300-update run，不自动增加 600/900 或其他 seeds。现有 CD trainer 仅保存 raw 权重，未保存 optimizer/EMA-target 恢复状态；中断或以后需要更长预算时，必须从共同初始化重跑，不能把加载 step-300 权重称为无缝续训。
+优先评测 original/rectified 的 all1，再评 all4；统一原始 944 prompts × 1、生成 seeds、raw 权重、全 16 维、无 FFE。输出四条件表和配对增益，实际播放视频检查运动冻结、结构和画面崩溃。若一步仍负，照实报告，不能以四步改善推定一步必须改善。
 
-CD 工具默认继承 review 分支的 **9 latent frames 小实验配置**。先核对论文原始设置，不能把默认 9 帧实验直接称为论文复现。两个 arm 必须使用同一份已确认配置。训练中的 EMA target 与评测使用的 raw generator 要区分。重训结果标注为本轮重跑，不把仓库历史分数冒充本轮结果。若共享初始化或轨迹仍缺失，明确列出这两个实际阻塞项并继续 A/C；旧 CD 权重丢失本身不再阻塞 B。
+固定第 0–63 个轨迹行为留出诊断，两组训练均排除。用 `cd_diagnostics` 在七个保存点比较相同 KV sampler 下的真实历史与自由生成历史；输出逐帧 MSE、history gap、预测变化、训练与诊断 learning curves 及固定样本配对 MP4。它只诊断固定 teacher-forced target 下的历史敏感性，不替代 VBench，不是严格因果分解，不用于挑超参数或最佳 checkpoint。
+
+本轮不增加 600/900 步或其他 CD seeds。共享数据缺失时按指定 AR 初始化重建，同时继续 A/C；旧成品权重丢失本身不阻塞 B。
 
 ## 五、正式实验 C：时间参数化与路径几何
 
@@ -159,7 +161,7 @@ P0-A 现已恢复 main 的训练设置；两个 frame seeds 的第 200 步 EMA �
 1. 运行目录、tmux/log/checkpoint 路径、配置、环境与初始化来源记录。
 2. GPU smoke、FSDP 恢复、评测和视频检查的真实完成状态。
 3. 四个 run 在 0/50/100/150/200 步的质量曲线、各自实际耗时、seeds 0/1 的 frame/chunk 配对差值及其均值/样本 SD，以及第 200 步 EMA 表。
-4. 两个重新训练的 CD step-300 raw checkpoints、配对训练记录和 all1/all4 结果表。
+4. 两个 CD step-300 raw checkpoints、全部七个保存点、配对训练审计、all1/all4 结果表、历史诊断 CSV/learning curves 与实际视频检查记录。
 5. 时间参数化与几何复核结果。
 6. 固定 prompt 视频对照及视觉检查记录。
 7. 可用于 rebuttal 的中文结果说明，包含负结果、局限及应收敛的论文表述。

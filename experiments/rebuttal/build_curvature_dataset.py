@@ -55,7 +55,7 @@ def load_source(path: Path):
     checkpoint = payload.get("generator_ckpt")
     if not checkpoint:
         raise ValueError(f"{path}: missing generator_ckpt provenance")
-    return prompt, trajectory, timesteps, noise_seed, guidance_scale, str(checkpoint)
+    return prompt, trajectory, timesteps, noise_seed, guidance_scale, str(checkpoint), payload.get("generator_checkpoint_sha256")
 
 
 def main() -> None:
@@ -102,6 +102,7 @@ def main() -> None:
     common_timesteps = None
     common_guidance = None
     common_checkpoint = None
+    common_checkpoint_sha256 = None
     seed_digest = hashlib.sha256()
     prompt_digest = hashlib.sha256()
     try:
@@ -113,6 +114,7 @@ def main() -> None:
                 noise_seed,
                 guidance_scale,
                 checkpoint,
+                checkpoint_sha256,
             ) = load_source(path)
             shape = tuple(trajectory.shape)
             if common_shape is None:
@@ -120,11 +122,13 @@ def main() -> None:
                 common_timesteps = timesteps
                 common_guidance = guidance_scale
                 common_checkpoint = checkpoint
+                common_checkpoint_sha256 = checkpoint_sha256
             checks = {
                 "shape": (shape, common_shape),
                 "selected_timesteps": (timesteps, common_timesteps),
                 "guidance_scale": (guidance_scale, common_guidance),
                 "generator_ckpt": (checkpoint, common_checkpoint),
+                "generator_checkpoint_sha256": (checkpoint_sha256, common_checkpoint_sha256),
             }
             mismatches = {
                 key: values for key, values in checks.items() if values[0] != values[1]
@@ -164,6 +168,7 @@ def main() -> None:
         "selected_timesteps": common_timesteps,
         "guidance_scale": common_guidance,
         "generator_ckpt": common_checkpoint,
+        "generator_checkpoint_sha256": common_checkpoint_sha256,
         "use_ema": False,
         "weight_source": "generator",
         "noise_seed_sequence_sha256": seed_digest.hexdigest(),
