@@ -2,6 +2,8 @@
 
 分支 `ICLR` 基于 `origin/review` (`bfd5e2d`)。此目录实现这次审稿意见对应的实验；旧 `experiments/rebuttal` 的其他任务不会自动启动。
 
+训练机 Codex 的完整执行任务见 [ICLR_TRAINING_MACHINE_TASK.md](../../docs/ICLR_TRAINING_MACHINE_TASK.md)。先读任务说明，再按本手册执行命令。
+
 用户已确认：**本机完成 CPU 验证，真实 GPU 训练、FSDP 恢复与视频检查在训练机完成。** 本机记录见 [ICLR_LOCAL_VALIDATION.md](../../docs/ICLR_LOCAL_VALIDATION.md)。CPU toy 测试不是 Wan 训练结果。
 
 ## 1. 迁移与资产准备
