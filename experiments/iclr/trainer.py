@@ -1,4 +1,4 @@
-"""ICLR-only trainer: strict raw init, matched active time and full restarts.
+"""ICLR-only trainer: strict raw init, fixed 200 iterations and full restarts.
 
 Legacy train.py never imports this module. Checkpoints support the same world
 size, FSDP topology, software and deterministic LMDB dataset only.
@@ -15,12 +15,11 @@ import torch
 import torch.distributed as dist
 
 from experiments.iclr.protocol import (
-    atomic_json, resume_signature, sha256_file, tensor_state_sha256, validate_config,
+    atomic_json, effective_gradient_frames, resume_signature, sha256_file, tensor_state_sha256, validate_config,
 )
 from experiments.iclr.state import RestartableStream, TrainingClock
 from trainer.one_forcing import Trainer, _move_optimizer_state, _normalize_state_dict_keys
-from utils.distributed import fsdp_state_dict
-from utils.misc import set_seed
+from utils.distributed import EMA_FSDP, fsdp_state_dict
 
 
 def load_raw(path):
@@ -67,7 +66,7 @@ def read_complete_checkpoint(directory, config, world_size):
     if directory.is_file():
         directory = directory.parent
     manifest = json.loads((directory / "complete.json").read_text())
-    if manifest.get("schema_version") != 1:
+    if manifest.get("schema_version") != 3:
         raise ValueError("unsupported ICLR checkpoint")
     if manifest["world_size"] != world_size:
         raise ValueError("ICLR restart requires identical world size/FSDP sharding")
@@ -96,14 +95,12 @@ class ICLRTrainer(Trainer):
                 config.resume_ckpt, config, int(os.environ["WORLD_SIZE"]))
             self.initialization = self.restart["initialization"]
         self.clock = (TrainingClock.from_state_dict(self.restart["clock"]) if self.restart
-                      else TrainingClock(config.iclr_budget_seconds, tuple(config.iclr_save_fractions)))
+                      else TrainingClock(config.max_steps, tuple(config.iclr_save_steps)))
         super().__init__(config)
         if self.world_size != int(config.iclr_expected_world_size):
             raise ValueError("world size differs from matched ICLR protocol")
-        if self.model._resolve_gradient_num_frames(21) != 21:
-            raise ValueError("actual gradient window must cover all 21 frames")
-        # Framewise must override the wrapper's historical default of 3 as well.
-        self.model.generator.module.model.num_frame_per_block = int(config.num_frame_per_block)
+        if self.model._resolve_gradient_num_frames(21) != effective_gradient_frames(config):
+            raise ValueError("gradient window differs from main's unchanged block-count policy")
         if self.restart:
             self._restore_training_state()
         else:
@@ -114,17 +111,16 @@ class ICLRTrainer(Trainer):
             atomic_json(Path(self.output_path) / "initialization.json", self.initialization)
 
     def _build_model(self, config):
-        # Identical discriminator initialization on every rank AND all 12 runs.
-        set_seed(int(config.iclr_initialization_seed))
+        # Preserve main's seed+rank model initialization; pair identities within each seed.
         model = super()._build_model(config)
         if self.is_main_process and not self.restart:
             self.initialization = {
-                "initialization_seed": int(config.iclr_initialization_seed),
+                "initialization_seed": int(config.seed),
+                "experiment_id": str(config.experiment_id),
                 "critic_tensor_sha256": tensor_state_sha256(model.fake_score.state_dict()),
                 "teacher_model_path": str(Path(config.teacher_model_path).resolve()),
                 "ode_provenance": "UNVERIFIED: content identity does not establish ODE training provenance",
             }
-        set_seed(int(config.seed) + dist.get_rank())
         return model
 
     def _preload_unwrapped_generator_from_checkpoint(self, path):
@@ -158,8 +154,8 @@ class ICLRTrainer(Trainer):
 
     def _build_dataloader(self, dataset):
         stream = RestartableStream(dataset, batch_size=self.config.batch_size,
-                                   seed=int(self.config.seed), rank=dist.get_rank(),
-                                   world_size=dist.get_world_size())
+                                   seed=0, rank=dist.get_rank(),
+                                   world_size=dist.get_world_size(), fixed_sampler_epoch=True)
         self.streams.append(stream)
         return stream
 
@@ -173,8 +169,16 @@ class ICLRTrainer(Trainer):
             raise ValueError("resume GPU type changed")
         self.generator_optimizer.load_state_dict(saved["generator_optimizer"])
         self.critic_optimizer.load_state_dict(saved["critic_optimizer"])
-        if self.config.generator_optimizer_state_cpu_offload:
+        if getattr(self.config, "generator_optimizer_state_cpu_offload", False):
             _move_optimizer_state(self.generator_optimizer, "cpu")
+        ema_state = saved["generator_ema"]
+        if ema_state is not None:
+            self.generator_ema = EMA_FSDP(self.model.generator, decay=self.config.ema_weight)
+            self.generator_ema.load_state_dict(ema_state)
+        elif self.clock.step >= self.config.ema_start_step and self.config.ema_weight > 0:
+            raise ValueError("checkpoint is missing the active per-rank EMA state")
+        else:
+            self.generator_ema = None
         if len(saved["streams"]) != len(self.streams):
             raise ValueError("data stream count changed")
         for stream, state in zip(self.streams, saved["streams"]):
@@ -200,7 +204,7 @@ class ICLRTrainer(Trainer):
                              "message": "one or more ranks have nonfinite losses/gradient norms"})
             raise FloatingPointError(f"nonfinite {phase} loss/gradient on at least one rank")
 
-    def save(self, fractions=(), reason="timepoint"):
+    def save(self, milestones=(), reason="step"):
         output = Path(self.output_path) / f"checkpoint_model_{self.step:06d}"
         started = time.perf_counter()
         if self.is_main_process:
@@ -210,26 +214,32 @@ class ICLRTrainer(Trainer):
         rng = capture_rng()
         generator = fsdp_state_dict(self.model.generator)
         critic = fsdp_state_dict(self.model.fake_score)
+        ema = self.generator_ema.full_state_dict(self.model.generator) if self.generator_ema is not None else None
         rank = dist.get_rank()
         atomic_torch_save(output / f"rank_{rank:03d}.pt", {
             "rank": rank, "step": self.step, "gpu_name": torch.cuda.get_device_name(self.device),
             "generator_optimizer": self.generator_optimizer.state_dict(),
             "critic_optimizer": self.critic_optimizer.state_dict(),
+            "generator_ema": self.generator_ema.state_dict() if self.generator_ema is not None else None,
             "rng": rng, "streams": [s.state_dict() for s in self.streams],
         })
         if self.is_main_process:
-            atomic_torch_save(output / "model.pt", {"step": self.step,
+            payload = {"step": self.step,
                 "generator": generator, "critic": critic,
-                "experiment_metadata": {"use_ema": False, "mode": self.config.iclr_mode}})
-        del generator, critic
+                "experiment_metadata": {"contains_generator_ema": ema is not None,
+                    "profile": self.config.iclr_profile, "mode": self.config.iclr_mode}}
+            if ema is not None:
+                payload["generator_ema"] = ema
+            atomic_torch_save(output / "model.pt", payload)
+        del generator, critic, ema
         dist.barrier()
         self.clock.checkpoint_seconds += self._synchronized_seconds(started)
         if self.is_main_process:
             names = ["model.pt", *(f"rank_{i:03d}.pt" for i in range(self.world_size))]
-            manifest = {"schema_version": 1, "world_size": self.world_size,
+            manifest = {"schema_version": 3, "world_size": self.world_size,
                 "torch_version": torch.__version__, "config": resume_signature(self.config),
                 "clock": self.clock.state_dict(), "initialization": self.initialization,
-                "reason": reason, "fractions": list(fractions),
+                "reason": reason, "milestones": list(milestones),
                 "files": {name: (output / name).stat().st_size for name in names}}
             atomic_json(output / "complete.json", manifest)
             with (Path(self.output_path) / "checkpoints.jsonl").open("a") as stream:
@@ -237,18 +247,23 @@ class ICLRTrainer(Trainer):
                     "experiment_id": self.config.experiment_id, "seed": int(self.config.seed),
                     "r1_weight": float(self.config.r1_weight), "r2_weight": float(self.config.r2_weight),
                     "mode": self.config.iclr_mode,
+                    "profile": self.config.iclr_profile,
+                    "stop_condition": self.config.iclr_stop_condition,
+                    "gradient_num_blocks": self.config.gradient_num_blocks,
+                    "effective_gradient_frames": effective_gradient_frames(self.config),
                     "method": "framewise" if self.config.num_frame_per_block == 1 else "chunkwise",
                     "schedule": "all1", "weight_source": "generator", "reason": reason,
-                    "fractions": list(fractions), **self.clock.state_dict()}) + "\n")
+                    "available_weights": ["generator"] + (["generator_ema"] if self.generator_ema is not None else []),
+                    **self.clock.state_dict(), "milestones": list(milestones)}) + "\n")
         dist.barrier()
         restore_rng(rng)
 
     def train(self):
         due = self.clock.due()
         if due:
-            self.clock.saved_fractions.extend(due)
+            self.clock.saved_steps.extend(due)
             self.save(due, reason="initial")
-        while self.clock.should_continue(self.config.iclr_mode, self.max_steps):
+        while self.clock.should_continue():
             dist.barrier()
             torch.cuda.synchronize(self.device)
             started = time.perf_counter()
@@ -260,11 +275,13 @@ class ICLRTrainer(Trainer):
                 self.critic_optimizer.zero_grad(set_to_none=True)
                 generator_logs = self.fwdbwd_one_step(next(self.dataloader), train_generator=True)
                 self._require_finite(generator_logs, "generator")
-                if self.config.generator_optimizer_state_cpu_offload:
+                if getattr(self.config, "generator_optimizer_state_cpu_offload", False):
                     _move_optimizer_state(self.generator_optimizer, self.device)
                 self.generator_optimizer.step()
-                if self.config.generator_optimizer_state_cpu_offload:
+                if getattr(self.config, "generator_optimizer_state_cpu_offload", False):
                     _move_optimizer_state(self.generator_optimizer, "cpu")
+                if self.generator_ema is not None:
+                    self.generator_ema.update(self.model.generator)
                 self.generator_optimizer.zero_grad(set_to_none=True)
                 torch.cuda.empty_cache()
             self.critic_optimizer.zero_grad(set_to_none=True)
@@ -273,6 +290,11 @@ class ICLRTrainer(Trainer):
             self.critic_optimizer.step()
             self.critic_optimizer.zero_grad(set_to_none=True)
             torch.cuda.empty_cache()
+            # Match main: initialize EMA after the iteration reaching ema_start_step;
+            # subsequent generator optimizer steps update it before the critic update.
+            if (self.clock.step + 1 >= self.config.ema_start_step
+                    and self.generator_ema is None and self.config.ema_weight > 0):
+                self.generator_ema = EMA_FSDP(self.model.generator, decay=self.config.ema_weight)
             seconds = self._synchronized_seconds(started)
             self.clock.advance(seconds, generator=train_generator)
             self.step = self.clock.step
@@ -286,13 +308,12 @@ class ICLRTrainer(Trainer):
                 torch.cuda.empty_cache()
             self.clock.overhead_seconds += self._synchronized_seconds(overhead_started)
             due = self.clock.due()
-            last_smoke = self.max_steps > 0 and self.step >= self.max_steps
-            if due or last_smoke:
-                self.clock.saved_fractions.extend(due)
-                self.save(due, reason="budget" if self.clock.exhausted else
-                          "smoke_step_cap" if last_smoke else "timepoint")
+            if due:
+                self.clock.saved_steps.extend(due)
+                self.save(due, reason="step_cap" if self.clock.exhausted else "step")
         if self.is_main_process:
             atomic_json(Path(self.output_path) / "training.done", {
                 **self.clock.state_dict(), "mode": self.config.iclr_mode,
-                "budget_reached": self.clock.exhausted,
-                "formal_result": self.config.iclr_mode == "formal" and self.clock.exhausted and self.step >= 10})
+                "stop_condition": "fixed_steps", "step_budget_reached": self.clock.exhausted,
+                "formal_result": self.config.iclr_mode == "formal" and self.clock.exhausted
+                                 and self.step == self.config.iclr_reference_step})

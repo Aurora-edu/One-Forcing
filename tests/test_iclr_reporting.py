@@ -1,3 +1,4 @@
+import csv
 import json
 import subprocess
 import sys
@@ -8,8 +9,8 @@ import torch
 from experiments.iclr.audit_initialization import audit
 from experiments.iclr.collect_teacher import make_schedule, euler_update
 from experiments.iclr.evaluate import record_cell, validate_manifest
-from experiments.iclr.protocol import REPO
-from experiments.iclr.summarize import group_by_timepoint, collect_rows
+from experiments.iclr.protocol import REPO, RUN_SPECS
+from experiments.iclr.summarize import group_by_step, collect_rows, same_seed_comparison, paired_step_summary, reference_step_summary
 from experiments.iclr.summarize_cd import summarize as summarize_cd
 from experiments.rebuttal.consolidate_results import NORMALIZE_DIC, official_totals
 
@@ -58,71 +59,142 @@ def test_original_manifest_rejects_rewrites_and_extra_samples(tmp_path):
 
 def synthetic_evaluations(root):
     """All scores below are test fixtures, never paper measurements."""
-    for method in ("framewise", "chunkwise"):
-        for regularized in (False, True):
-            for seed in (0, 1, 2):
-                for fraction in (0., .25, .5, .75, 1.):
-                    name = f"step{int(fraction*100):06d}_{method}"
-                    directory = root / f"{method}_{regularized}_{seed}" / name
-                    (directory / "vbench").mkdir(parents=True)
-                    cell = {"name": name, "method": method, "use_ema": False,
-                        "mode": "formal", "schedule": "all1", "seed": seed,
-                        "manifest_sha256": "fixture_manifest", "prompt_sha256": "fixture_prompts",
-                        "full_info_sha256": "fixture_info", "samples_per_prompt": 1,
-                        "budget_seconds": 100., "training_seconds": 100*fraction + (seed if fraction else 0),
-                        "step": int(fraction*100), "generator_updates": int(fraction*20),
-                        "critic_updates": int(fraction*100), "fractions": [fraction],
-                        "r1_weight": float(regularized), "r2_weight": .001*regularized,
-                        "experiment_id": f"{method}_{regularized}_{seed}"}
-                    (directory / "iclr_cell.json").write_text(json.dumps(cell))
-                    scores = {k.replace(" ", "_"): v["Min"] + (.4 + .01*seed)*(v["Max"]-v["Min"])
-                              for k, v in NORMALIZE_DIC.items()}
-                    (directory / "vbench" / f"{name}_eval_results.json").write_text(json.dumps(scores))
+    for experiment_id, block, seed in RUN_SPECS:
+        method = "framewise" if block == 1 else "chunkwise"
+        for step in (0, 50, 100, 150, 200):
+            name = f"step{step:06d}_{method}"
+            directory = root / experiment_id / name
+            (directory / "vbench").mkdir(parents=True)
+            cell = {"name": name, "method": method, "use_ema": step > 0,
+                "mode": "formal", "schedule": "main_ffe", "seed": seed,
+                "profile": "main_block_ablation_200_v2", "conditioning": "pinned_qwen_rewrite",
+                "rewrite_sha256": "fixture_rewrites", "reference_step": None,
+                "initial_raw_reference": step == 0,
+                "manifest_sha256": "fixture_manifest", "prompt_sha256": "fixture_prompts",
+                "full_info_sha256": "fixture_info", "samples_per_prompt": 5,
+                "max_steps": 200, "stop_condition": "fixed_steps",
+                "training_seconds": step * (.5 if block == 1 else 1.) + (seed if step else 0),
+                "step": step, "generator_updates": step // 5,
+                "critic_updates": step, "milestones": [step],
+                "r1_weight": 0., "r2_weight": 0., "experiment_id": experiment_id}
+            (directory / "iclr_cell.json").write_text(json.dumps(cell))
+            score = .4 + .01*seed + (.02 + .01*seed if method == "framewise" else 0)
+            scores = {k.replace(" ", "_"): v["Min"] + score*(v["Max"]-v["Min"])
+                      for k, v in NORMALIZE_DIC.items()}
+            (directory / "vbench" / f"{name}_eval_results.json").write_text(json.dumps(scores))
 
 
-def test_time_summary_and_plot_end_to_end(tmp_path):
+def test_step_summary_and_plot_end_to_end(tmp_path):
     root = tmp_path / "synthetic"
     synthetic_evaluations(root)
     rows = collect_rows(root)
-    summary = group_by_timepoint(rows)
+    summary = group_by_step(rows)
     final = next(r for r in summary if r["method"] == "chunkwise"
-                 and not r["regularized"] and r["fraction"] == 1. and r["metric"] == "total_score")
-    assert final["mean"] == pytest.approx(.41)
-    assert final["sample_std"] == pytest.approx(.01)
-    assert final["actual_training_seconds_min"] == 100
-    assert final["actual_training_seconds_max"] == 102
-    with pytest.raises(ValueError, match="four experimental arms"):
-        group_by_timepoint([r for r in rows if r["method"] == "framewise"])
+                 and not r["regularized"] and r["step"] == 200 and r["metric"] == "total_score")
+    assert final["mean"] == pytest.approx(.405)
+    assert final["sample_std"] == pytest.approx(.01 / 2**.5)
+    assert final["num_training_seeds"] == 2
+    assert final["actual_training_seconds_min"] == 200
+    assert final["actual_training_seconds_max"] == 201
+    frame = next(r for r in summary if r["method"] == "framewise"
+                 and r["step"] == 200 and r["metric"] == "total_score")
+    assert frame["num_training_seeds"] == 2
+    assert frame["mean"] == pytest.approx(.43)
+    assert frame["sample_std"] == pytest.approx(.02 / 2**.5)
+    assert frame["actual_training_seconds_max"] == 101
+    comparisons = same_seed_comparison(rows)
+    paired = [r for r in comparisons if r["step"] == 200 and r["metric"] == "total_score"]
+    assert [r["seed"] for r in paired] == [0, 1]
+    assert [r["frame_minus_chunk"] for r in paired] == pytest.approx([.02, .03])
+    paired_summary = next(r for r in paired_step_summary(comparisons)
+                          if r["step"] == 200 and r["metric"] == "total_score")
+    assert paired_summary["num_training_pairs"] == 2
+    assert paired_summary["mean_frame_minus_chunk"] == pytest.approx(.025)
+    assert paired_summary["mean_frame_minus_chunk"] == pytest.approx(frame["mean"] - final["mean"])
+    assert paired_summary["sample_std"] == pytest.approx(.01 / 2**.5)
+    with pytest.raises(ValueError, match="both training seeds"):
+        paired_step_summary([r for r in comparisons if r["seed"] == 0])
+    with pytest.raises(ValueError, match="duplicate seed"):
+        paired_step_summary(comparisons + [comparisons[0]])
+    with pytest.raises(ValueError, match="framewise and chunkwise"):
+        group_by_step([r for r in rows if r["method"] == "framewise"])
     with pytest.raises(ValueError, match="seeds"):
-        group_by_timepoint([r for r in rows if r["seed"] != 2])
+        group_by_step([r for r in rows if r["seed"] != 1])
+    # The old three-run plan is insufficient for the new two-pair summary.
+    with pytest.raises(ValueError, match="seeds"):
+        group_by_step([r for r in rows if r["experiment_id"] != "chunk_roff_s1"])
+    extra_chunk = {**next(r for r in rows if r["method"] == "chunkwise"), "seed": 2}
+    with pytest.raises(ValueError, match="seeds"):
+        group_by_step(rows + [extra_chunk])
     with pytest.raises(ValueError, match="initial and final"):
-        group_by_timepoint([r for r in rows if 1. not in r["fractions"]])
+        group_by_step([r for r in rows if r["step"] != 200])
     out = tmp_path / "report"
     subprocess.run([sys.executable, "-m", "experiments.iclr.summarize", "--evaluations",
                     str(root), "--output", str(out)], cwd=REPO, check=True, capture_output=True)
-    for filename in ("points.csv", "endpoints.csv", "matched_time_summary.csv", "curves.pdf", "curves.png"):
+    for filename in ("points.csv", "endpoints.csv", "matched_step_summary.csv",
+                     "same_seed_comparison.csv", "paired_step_summary.csv", "step200_seed_summary.csv", "curves.pdf", "curves.png"):
         assert (out / filename).stat().st_size > 0
+    with (out / "endpoints.csv").open() as stream:
+        endpoints = list(csv.DictReader(stream))
+    assert all(row["sample_std"] != "" and row["num_training_seeds"] == "2" for row in endpoints)
+    with (out / "same_seed_comparison.csv").open() as stream:
+        paired_rows = list(csv.DictReader(stream))
+    assert {row["seed"] for row in paired_rows} == {"0", "1"}
+    assert all(float(row["frame_minus_chunk"]) == pytest.approx(.02 + .01 * int(row["seed"]))
+               for row in paired_rows if row["metric"] == "total_score")
+    with (out / "paired_step_summary.csv").open() as stream:
+        paired_summary_rows = list(csv.DictReader(stream))
+    assert all(float(row["mean_frame_minus_chunk"]) == pytest.approx(.025)
+               and float(row["sample_std"]) == pytest.approx(.01 / 2**.5)
+               and row["num_training_pairs"] == "2"
+               for row in paired_summary_rows if row["metric"] == "total_score")
     path = next(root.rglob("iclr_cell.json"))
     cell = json.loads(path.read_text())
     cell["manifest_sha256"] = "another_noise_schedule"
     path.write_text(json.dumps(cell))
     with pytest.raises(ValueError, match="do not share"):
         collect_rows(root)
+    cell["manifest_sha256"] = "fixture_manifest"
+    cell["r2_weight"] = .001
+    path.write_text(json.dumps(cell))
+    with pytest.raises(ValueError, match="both off"):
+        collect_rows(root)
 
 
 def test_initialization_audit_detects_actual_weight_changes(tmp_path):
     payload = {"generator_checkpoint_sha256": "a", "generator_tensor_sha256": "b",
-        "critic_tensor_sha256": "c", "initialization_seed": 12345,
         "generator_source_key": "generator", "strict_load": True, "use_ema": False}
-    for i in range(12):
-        directory = tmp_path / str(i)
+    for name, _, seed in RUN_SPECS:
+        directory = tmp_path / name
         directory.mkdir()
-        (directory / "initialization.json").write_text(json.dumps(payload))
+        (directory / "initialization.json").write_text(json.dumps({**payload,
+            "experiment_id": name, "initialization_seed": seed, "critic_tensor_sha256": f"critic_seed{seed}"}))
     assert audit(tmp_path)["actual_tensor_identity"] == "matched"
+    changed = tmp_path / "frame_roff_s0" / "initialization.json"
+    payload = json.loads(changed.read_text())
     payload["critic_tensor_sha256"] = "different"
-    (tmp_path / "0" / "initialization.json").write_text(json.dumps(payload))
+    changed.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="critic_tensor"):
         audit(tmp_path)
+
+
+def test_step200_summary_and_legacy_protocol_rejection(tmp_path):
+    synthetic_evaluations(tmp_path)
+    rows = collect_rows(tmp_path)
+    reference = [{**r, "reference_step": 200} for r in rows if r["step"] == 200]
+    summary = reference_step_summary(reference)
+    frame = next(r for r in summary if r["method"] == "framewise" and r["metric"] == "total_score")
+    assert frame["num_training_seeds"] == 2 and frame["mean"] == pytest.approx(.43)
+    with pytest.raises(ValueError, match="explicitly selected"):
+        reference_step_summary(rows)
+    with pytest.raises(ValueError, match="seeds 0,1"):
+        reference_step_summary([r for r in reference if r["experiment_id"] != "chunk_roff_s1"])
+    path = next(tmp_path.rglob("iclr_cell.json"))
+    cell = json.loads(path.read_text())
+    cell.update(schedule="all1", use_ema=False)
+    path.write_text(json.dumps(cell))
+    with pytest.raises(ValueError, match="main-aligned"):
+        collect_rows(tmp_path)
 
 
 @pytest.mark.parametrize("module", ["collect_teacher", "summarize", "summarize_cd", "audit_initialization"])

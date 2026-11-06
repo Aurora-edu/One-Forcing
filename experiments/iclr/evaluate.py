@@ -1,4 +1,4 @@
-"""Plan/run raw paired VBench cells, including chunk curves and CD all1/all4."""
+"""Plan/run main-aligned EMA curves and separate raw CD all1/all4 cells."""
 import argparse
 import json
 from pathlib import Path
@@ -6,7 +6,7 @@ import shlex
 import subprocess
 import sys
 
-from experiments.iclr.protocol import REPO, atomic_json, sha256_file
+from experiments.iclr.protocol import MAIN_REFERENCE, REPO, atomic_json, sha256_file
 
 
 def cd_cells(original, rectified, config):
@@ -16,26 +16,38 @@ def cd_cells(original, rectified, config):
             for schedule in ("all1", "all4")]
 
 
-def curve_cells(index, config):
+def curve_cells(index, config, reference_step=None):
     cells = []
     for line in Path(index).read_text().splitlines():
         row = json.loads(line)
-        if row["weight_source"] != "generator" or row["schedule"] != "all1":
-            raise ValueError("matched curve requires raw/all1 checkpoints")
+        if (row.get("profile") != "main_block_ablation_200_v2" or row["schedule"] != "all1"
+                or row.get("stop_condition") != "fixed_steps"):
+            raise ValueError("matched curve requires main-aligned fixed-step checkpoints; regenerate old configurations")
+        if reference_step is not None and row["step"] != reference_step:
+            continue
+        if reference_step is None and not row["milestones"]:
+            continue
+        initial = row["step"] == 0
+        if not initial and "generator_ema" not in row["available_weights"]:
+            raise ValueError("EMA is not initialized at this timepoint; do not silently use raw weights")
         if row["method"] not in ("framewise", "chunkwise"):
             raise ValueError("unknown curve method")
         cells.append({"name": f"step{row['step']:06d}_{row['method']}",
             "step": row["step"],
             "checkpoint": row["checkpoint"], "config": config,
-            "method": row["method"], "schedule": "all1",
+            "method": row["method"], "schedule": "main_ffe",
+            "use_ema": not initial, "initial_raw_reference": initial,
+            "profile": row["profile"], "reference_step": reference_step,
             "training_seconds": row["training_seconds"],
             "generator_updates": row["generator_updates"], "critic_updates": row["critic_updates"],
             "seed": row["seed"], "r1_weight": row["r1_weight"], "r2_weight": row["r2_weight"],
             "mode": row["mode"], "experiment_id": row["experiment_id"],
-            "budget_seconds": row["budget_seconds"],
-            "fractions": row["fractions"]})
+            "max_steps": row["max_steps"], "stop_condition": row["stop_condition"],
+            "milestones": row["milestones"]})
     if len({cell["name"] for cell in cells}) != len(cells):
         raise ValueError("duplicate checkpoints in curve index; supply one run's index")
+    if not cells:
+        raise ValueError("no matching checkpoints in index")
     return cells
 
 
@@ -58,14 +70,18 @@ def validate_manifest(path, prompt_path, *, expected_prompts=944):
 
 
 def command_for_cell(cell, args):
-    return ["bash", str(REPO / "experiments/rebuttal/run_vbench_condition.sh"),
+    command = ["bash", str(REPO / "experiments/rebuttal/run_vbench_condition.sh"),
         "--name", cell["name"], "--config_path", str(cell["config"]),
         "--checkpoint_path", str(cell["checkpoint"]), "--method", cell["method"],
         "--schedule", cell["schedule"], "--prompt_path", args.prompts,
         "--manifest_path", args.manifest, "--full_info_path", args.full_info,
         "--output_root", str(Path(args.output) / cell["name"]), "--gpus", args.gpus,
         "--vbench_python", args.vbench_python, "--python", args.python,
-        "--samples_per_prompt", "1", "--require_no_ema"]
+        "--samples_per_prompt", str(getattr(args, "samples_per_prompt", 1)),
+        "--use_ema" if cell.get("use_ema", False) else "--require_no_ema"]
+    if getattr(args, "extended_prompts", ""):
+        command += ["--extended_prompt_path", args.extended_prompts]
+    return command
 
 
 def record_cell(path, payload):
@@ -86,15 +102,19 @@ def main():
     cd = kind.add_parser("cd", help="original/rectified x all1/all4, no FFE")
     cd.add_argument("--original", required=True)
     cd.add_argument("--rectified", required=True)
-    curve = kind.add_parser("curve", help="timepoint index from one frame OR chunk run")
+    curve = kind.add_parser("curve", help="saved-step index from one frame OR chunk run")
     curve.add_argument("--index", required=True)
+    curve.add_argument("--reference-step", type=int, choices=(200,), help="evaluate only the step-200 endpoint instead of the full curve")
     single = kind.add_parser("single", help="one checkpoint")
     single.add_argument("--checkpoint", required=True)
     single.add_argument("--method", choices=("framewise", "chunkwise"), required=True)
     for sub in (cd, curve, single):
-        sub.add_argument("--config", default=str(REPO / "experiments/rebuttal/configs/eval_all1.yaml"))
+        sub.add_argument("--config", default=str(MAIN_REFERENCE if sub is curve else
+                         REPO / "experiments/rebuttal/configs/eval_all1.yaml"))
         sub.add_argument("--prompts", required=True)
         sub.add_argument("--manifest", required=True)
+        sub.add_argument("--extended-prompts", default="")
+        sub.add_argument("--samples-per-prompt", type=int, choices=(1, 5), default=5 if sub is curve else 1)
         sub.add_argument("--full-info", required=True)
         sub.add_argument("--output", required=True)
         sub.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
@@ -107,7 +127,7 @@ def main():
     if args.kind == "cd":
         cells = cd_cells(args.original, args.rectified, args.config)
     elif args.kind == "curve":
-        cells = curve_cells(args.index, args.config)
+        cells = curve_cells(args.index, args.config, args.reference_step)
     else:
         cells = [{"name": f"{args.method}_all1", "config": args.config,
                   "checkpoint": args.checkpoint, "method": args.method, "schedule": "all1"}]
@@ -115,18 +135,28 @@ def main():
     for command in commands:
         print(shlex.join(command))
     if not args.execute:
-        print("DRY RUN: raw generator, original prompts, 1 sample/prompt; no GPU/model access")
+        print("DRY RUN: curve=main_ffe/EMA/Qwen; CD=raw/all1+all4/original; no GPU/model access")
         return
     from experiments.iclr.launch import parse_gpus, require_idle
     require_idle(parse_gpus(args.gpus))
-    protocol = validate_manifest(args.manifest, args.prompts)
+    if args.kind == "curve":
+        if args.samples_per_prompt != 5 or not args.extended_prompts:
+            raise ValueError("main-aligned curves require pinned Qwen rewrites and 5 samples per prompt")
+        from experiments.rebuttal.paper_vbench_protocol import audit_files, verify_full_info
+        verify_full_info(Path(args.full_info))
+        protocol = audit_files(Path(args.prompts), Path(args.extended_prompts), Path(args.manifest), 5)
+        protocol["num_prompts"] = protocol["prompt_count"]
+    else:
+        if args.extended_prompts or args.samples_per_prompt != 1:
+            raise ValueError("CD/single protocol requires original prompts and one sample")
+        protocol = validate_manifest(args.manifest, args.prompts)
     protocol["full_info_sha256"] = sha256_file(args.full_info)
     for cell, command in zip(cells, commands):
         if not Path(cell["checkpoint"]).is_file():
             raise FileNotFoundError(cell["checkpoint"])
         root = Path(args.output) / cell["name"]
         # Keep time and update coordinates next to score outputs for curve plotting.
-        record_cell(root / "iclr_cell.json", {**cell, **protocol, "use_ema": False})
+        record_cell(root / "iclr_cell.json", {**cell, **protocol, "use_ema": cell.get("use_ema", False)})
         subprocess.run(command, cwd=REPO, check=True)
 
 

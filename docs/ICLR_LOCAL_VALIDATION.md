@@ -2,6 +2,8 @@
 
 验证日期：2026-11-06。工作目录：`/home/jiaqi/One-Forcing`。
 
+最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
+
 ## 分支与模型
 
 `ICLR` 从 `origin/review` 的 `bfd5e2d` 创建。用户提供的论文 PDF 保留在工作区，不提交。
@@ -24,7 +26,7 @@ flash-attn   2.7.3
 ```
 
 本机 numpy / transformers 与仓库锁定版本（1.24.4 / 4.49.0）不同。
-CPU 检查通过不能视为两个版本组合的 GPU 数值等价验证。8 卡正式训练应使用独立环境，遵守仓库依赖版本，四组实验使用完全相同的软件环境。
+CPU 检查通过不能视为两个版本组合的 GPU 数值等价验证。8 卡正式训练应使用独立环境，遵守仓库依赖版本，所有实验使用完全相同的软件环境。
 
 ## 已核对的数据资产
 
@@ -62,7 +64,7 @@ python experiments/rebuttal/validate_configs.py
 
 机器可读环境记录：`/data/fengjiaqi/One-Forcing/iclr_local_validation/assets.json` 与 `gpu_inventory.json`。这些是本机诊断产物，不是论文实验结果，也不随 Git 提交。
 
-## 新增实现的最终 CPU 验证
+## 原方案的 CPU 验证（历史记录）
 
 - 全套测试：`python -m pytest -q`，90 passed（包含原有 53 项）。
 - Python 编译和 `git diff --check` 通过。
@@ -73,3 +75,121 @@ python experiments/rebuttal/validate_configs.py
 - 用 synthetic VBench fixtures 验证 12 组、多时间点的 CSV/PDF/PNG 导出，并查看 PNG 排版。没有将 synthetic 指标用作论文结果。
 
 最终机器可读命令检查记录：`/data/fengjiaqi/One-Forcing/iclr_local_validation/final_cpu_v2/report.json`。前面的临时目录是开发过程中间产物，不作为最终验收记录。
+
+## 三-run 方案修订后的 CPU 验证（历史记录）
+
+2026-11-06，在相同环境执行：
+
+```bash
+/home/jiaqi/miniconda3/envs/causal_forcing/bin/python -m pytest -q
+# 95 passed in 23.91s
+git diff --check
+```
+
+- 配置和 launcher dry-run 仅生成并依次列出 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`；全部关闭 R1/R2。
+- 拒绝旧 12-run 矩阵、额外 seed、正则开启、重复/错序 run、名称与配置不一致及其他配置混杂项。
+- Synthetic VBench fixtures 验证三条曲线与 CSV/PDF/PNG 导出；frame n=2 使用样本 SD，chunk n=1 的 SD 为未定义值，CSV 留空。
+- `same_seed_comparison.csv` 使用 frame seed 0 减 chunk seed 0；测试明确区分该差值与 frame 两 seed 均值减 chunk 单次结果。
+- 初始化审计默认检查 3 个 run。恢复、CD 与轨迹等既有 CPU 回归测试继续通过。
+
+本次修订未启动 GPU 训练或生成真实视频；GPU 验证与动态视频检查仍须在训练机完成。
+
+## CD 权重丢失后的重训方案（五-run 阶段历史记录）
+
+用户确认旧 CD 权重找不到，实验 B 改为必须从共享 raw 初始化重训 `curved` / `rectified`，各 300 updates、seed 0，再评 all1/all4。A+B 共 5 个正式训练 run，smoke 和评测条件单独计数。旧 CD 权重不再是前置资产；配对轨迹 LMDB 及其来源初始化仍需在训练机核实。
+
+`experiments.iclr.cd` 默认预算由 900 改为 300。执行 `python -m pytest -q tests/test_iclr_protocol.py`，25 passed（7.62s），包括默认 CD dry-run 恰好输出两组、相同 seed、300 updates 和不支持续训的检查；`git diff --check` 通过。本次仅修改入口默认值及执行文档，未启动真实 CD 训练。
+
+## 三位审稿人合并后的 CPU 验证（五-run 阶段历史记录）
+
+用户选择 nPEg 优先、正式训练仍为 5 个 run；PkyQ/o6Jx 的新增工作限于评测与协议核对，主配置训练 seed 方差暂不完整补齐。新增任务说明为 `docs/ICLR_REVIEWER_COVERAGE.md`，主任务已链接该文件。
+
+- 全套 `python -m pytest -q`：100 passed（25.46s）。`git diff --check` 通过。
+- 新增 `experiments.iclr.prompt_ablation`，默认 dry-run；可在 CPU 准备 944×1 或 944×5 的原始/Qwen 配对 manifests，执行评测要求 tmux 和空闲 GPU。
+- 5 项新增 CPU 测试验证 prompt/sample/noise seed 配对、配置与权重选择、单样本/五样本混用拒绝、不同 checkpoint 拒绝，以及无权重/GPU 的 dry-run。
+- Synthetic VBench fixtures 仅验证汇总逻辑，未用于填写任何真实结果。
+- 已从本地 PDF Table 2 整理 13 行协议核对 CSV，验证字段数量和 CSV 格式。纸面分数标为历史引用，无法从当前证据确定的协议字段保留 `unknown`，不表示已重评。
+
+尚未运行新增 GPU 评测或检查新增 MP4；没有新增主配置训练，也没有改变原五个训练 run 的安排。所有修改仍需随代码迁移到训练机后执行。
+
+## 六-run 方案：新增 chunk seed 1 后的验证（历史记录）
+
+最新用户决定增加 `chunk_roff_s1`。实验 A 变为 frame/chunk 各 seeds 0、1，共 4 个 run；实验 B 仍为两个 seed-0、300-update CD run，正式训练总计 6 个。nPEg 优先级不变，不新增主配置训练。
+
+```bash
+/home/jiaqi/miniconda3/envs/causal_forcing/bin/python -m pytest -q tests/test_iclr_protocol.py tests/test_iclr_reporting.py
+# 37 passed in 16.25s
+git diff --check
+```
+
+- 配置生成和 launcher dry-run 按顺序输出 frame s0、chunk s0、frame s1、chunk s1；拒绝旧三-run/十二-run 矩阵、重复和错序运行。
+- 初始化审计默认检查 4 个 frame/chunk run；CD 两组仍由独立入口执行。
+- Synthetic VBench fixtures 验证两种粒度各 n=2 的均值/样本 SD、两个 seed 的配对差值，以及 `paired_time_summary.csv` 中两组差值的均值/样本 SD；缺失 chunk seed 1 或配对 seed 会报错。
+- 真实时间曲线、CSV/PDF/PNG 导出，以及 CD 默认 300 步与四条件评测的相关 CPU 回归检查通过。所有合成分数仅用于测试。
+
+本次没有启动 GPU 训练或视频生成，也没有修改其他 session 的进程。真实六-run 实验及视频检查仍在训练机完成。
+
+## 按 main 对齐后的六-run 验证（历史时间预算方案）
+
+用户确认标准实现为 GitHub main，主表使用 EMA。核对提交 `c9a2350e8740531562011fc9618e1a928d911ae0`；保存的 `main_reference.yaml` 与该提交 `config.yaml` 的 Git blob 均为 `1caabde9e340552c4c9e9d39f8f5f90c03321b46`。
+
+全套 CPU 回归：**109 passed in 30.25s**。本次显式隐藏 GPU；Wan 的 T5 模块在导入时会求值 `torch.cuda.current_device()`，因此只在测试进程临时替换该查询，不改生产代码或共享环境：
+
+```bash
+CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python - <<'PY'
+import torch
+import pytest
+torch.cuda.current_device = lambda: 0
+raise SystemExit(pytest.main(['-q', '--tb=short', '--show-capture=no']))
+PY
+```
+
+验证内容：
+
+- 四个配置继承 main；梯度仍按 17 blocks 计算，frame/chunk 实际为 17/21 帧；EMA=0.99，从第 50 步开始。修改 EMA、梯度策略等参考超参数会被拒绝。
+- 数据 sampler 保持 main 的 seed 0 和每轮重复排列，恢复后数据顺序一致；模型初始化按同 seed 配对审计。
+- 真实 ICLR 循环在 tiny CPU 模型上验证 10 步 EMA/AdamW/RNG/数据恢复等价；该 toy 单独将 EMA 起点提前至 5，正式配置仍为 50。
+- 额外用 CPU toy 验证预算在第 200 步之前、同时、之后达到的三种情况：第 200 步 checkpoint 和匹配时间终点分别正确保存，重合时不重复保存。
+- 上述检查发现并修复 checkpoint index 中 clock 的完整 fractions 列表覆盖本次保存 fractions 的问题，防止所有 checkpoint 被错误标成所有时间点。
+- 实际执行 `scripts/infer.sh` 的配置生成部分，替换 GPU exporter 为测试 stub；验证 frame/chunk 的固定 block 数、首块四步/后续一步及 main attention 默认值。没有生成真实视频。
+- 合成分数仅验证 matched-time 配对均值/SD、step-200 独立表和旧 raw/all1 产物拒绝；没有作为论文结果。
+- 配置生成、四条 8 卡 launcher 命令、train dry-run、固定 944×5 Qwen manifests、chunk 第 200 步 EMA/main_ffe 评测计划全部通过。CLI 检查在临时目录执行，没有加载模型或启动 GPU。
+- `git diff --check` 和所改 shell 脚本语法检查通过。
+
+本轮改动保留在本机 ICLR 工作区，未提交或推送。Wan 多卡训练、实际 FSDP EMA 导出/恢复和 MP4 动态画面检查仍由训练机完成；未干扰其他 session 的进程。
+
+
+## 固定 frame/chunk 各 200 步后的 CPU 验证
+
+用户最新要求：四个 frame/chunk run 都在第 200 步结束，不再由时间预算延长。正式保存点改为 0、50、100、150、200；smoke 仍为 10 步，保存 0、5、10。每个正式 run 为 40 次 generator 更新和 200 次 critic 更新。新 profile 为 `main_block_ablation_200_v2`，checkpoint schema 为 3；旧时间预算配置需重新生成，旧 schema 不支持本轮完整恢复。
+
+```bash
+CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python - <<'PYTEST'
+import torch
+import pytest
+torch.cuda.current_device = lambda: 0
+raise SystemExit(pytest.main(['-q', '--tb=short', '--show-capture=no',
+    'tests/test_iclr_protocol.py', 'tests/test_iclr_restart.py', 'tests/test_iclr_reporting.py']))
+PYTEST
+# 55 passed in 26.87s
+```
+
+- 真实 ICLR 循环的 CPU toy 验证 frame/chunk 在每步耗时极短或极长时，都只完成 200 步，保存五个指定 checkpoint，实际累计耗时单独记录。
+- 完整恢复测试核对 optimizer、EMA、RNG、数据位置与不中断运行一致；这些测试替换了 CUDA/FSDP collectives，不代表真实多卡验证。
+- 四配置生成、launcher/train dry-run、旧时间预算和非 200 步正式配置拒绝，以及已有推理调度检查通过。
+- 合成 VBench 数据验证相同步数下的两 seed 配对汇总、各自实际耗时、CSV/PDF/PNG 导出；完整曲线同时导出 `step200_seed_summary.csv`，无需重复评测终点。合成数据不作为论文结果。
+- 训练机任务、运行手册、main 对齐记录与审稿人覆盖说明已同步；固定步数结果不标为严格匹配 wall-clock compute。
+- `git diff --check` 通过。
+
+本次仅做本地代码、文档修改和 CPU 验证；未启动 GPU 训练、生成视频或修改 CD 设置，也未提交或推送 Git。
+
+## 发布到 ICLR 分支前的完整验证
+
+用户要求将当前实验更新到 GitHub。固定 200 步代码、main 对齐评测、original/Qwen 补充评测、三位审稿人任务和 CD 来源说明一并纳入本次更新，论文 PDF 不纳入提交。
+
+- 使用上文 CPU bootstrap，去掉测试文件限制运行全套 pytest：**113 passed in 30.34s**。
+- `git diff --check` 及 `bash -n scripts/infer.sh experiments/rebuttal/run_vbench_condition.sh` 通过。
+- `main_reference.yaml` 与 `main@c9a2350` 的 `config.yaml` 逐字相同；新增说明的本地链接有效。
+- CD 历史一步结果、数据重建流程和 seed 2026/当前默认 seed 0 的差异已写入 `ICLR_CD_PROVENANCE.md`，本次未改变 CD 默认训练设置。
+
+这些是 CPU 和静态检查，GPU 训练、真实 FSDP 恢复及视频检查仍需训练机执行。

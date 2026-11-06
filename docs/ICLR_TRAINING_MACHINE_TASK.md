@@ -2,15 +2,25 @@
 
 请接手并执行本文件中的实验。这是执行任务，不要只返回计划。先检查环境和资产，再完成 GPU 验证、正式训练及评测。某项缺少资产时，继续推进其他独立工作。
 
+**最新范围：实验 A 跑 4 个正式训练 run，依次为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全部关闭，四组都固定 200 iterations 后结束，保存 0/50/100/150/200 步，不按时间预算延长。用户已新增 chunk seed 1，用于两组 seed 的 frame/chunk 配对比较。旧 3-run / 12-run 配置已不适用，必须在新目录重新生成；不增加正则开启或 seed 2 的训练。**
+
+**CD 权重已确认找不到，实验 B 必须重训 original/rectified，各 300 updates、training seed 0，共 2 个 run。A+B 合计 6 个正式训练 run；CD 的 all1/all4 是 4 个评测条件，不是 4 次训练。**
+
+**CD 核查更新：论文 Table 1 对应的历史脚本、配置和汇总结果已经找到，历史记录还包含同一对 step-300 checkpoint 的一步评测。详见[CD 来源与重建说明](ICLR_CD_PROVENANCE.md)。旧配置 seed=2026，当前 ICLR 封装默认 seed=0，必须将后者标为新受控重跑，不能称为原设置的精确复现。旧成品权重丢失不代表实验流程丢失；共享初始化和轨迹数据可以重新准备。**
+
+**最新对齐要求：实验 A 的 framewise 使用标准 main 的训练设置；chunkwise 仅把每 block 帧数从 1 改为 3，其余模型设置不变。用户确认主表使用 EMA。以 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md) 为准，旧的“21 梯度帧、EMA 关闭、raw/all1 主评测”方案已取消，不能复用其训练产物。**
+
+**三位审稿人合并范围：nPEg 的 A/B/C 为最高优先级；其后追加 PkyQ/o6Jx 的主表协议核对与原始 prompts 评测。正式训练仍为 6 个 run；A 的两个 frame seeds 同时提供标准配置第 200 步 EMA 的重复性证据。完整覆盖关系见[三位审稿人合并任务](ICLR_REVIEWER_COVERAGE.md)。**
+
 ## 仓库与已有进度
 
 - 仓库：<https://github.com/Aurora-edu/One-Forcing>
 - 工作分支：`ICLR`，使用包含本文件的最新版本。
 - 实验代码已验证基线：`f4bf6ddb101584ee40e2437829403a4a79312b2d`。这是基线记录，不要求退回该提交而丢失后续文档。
-- 上一台机器完成了全套 90 项 CPU 测试，以及 11 项配置、dry-run 和合成分析检查。
+- 原五-run 方案通过本机全套 100 项 CPU 测试；六-run 修订的验证结果见[本机验证记录](ICLR_LOCAL_VALIDATION.md)。检查覆盖配置、CD 默认重训预算、launcher dry-run、配对汇总、图表导出及 original/Qwen 配对评测入口。
 - 真实 Wan GPU 训练、FSDP 恢复、视频生成和视觉检查尚未完成，必须在本训练机验证。
 
-先阅读适用的 `AGENTS.md`、[实验运行手册](../experiments/iclr/README.md)和[本机验证记录](ICLR_LOCAL_VALIDATION.md)。本文件说明要完成什么；运行手册提供命令、参数及实现限制。
+先阅读适用的 `AGENTS.md`、[实验运行手册](../experiments/iclr/README.md)、[三位审稿人合并任务](ICLR_REVIEWER_COVERAGE.md)和[本机验证记录](ICLR_LOCAL_VALIDATION.md)。本文件说明要完成什么；运行手册提供命令、参数及实现限制。本轮优先级以这两份 ICLR 任务为准，不沿用旧 `experiments/rebuttal` 文档中的其它执行顺序或排除 CD 的旧计划。
 
 ## 执行约束
 
@@ -26,7 +36,7 @@
 
 检查工作区后获取 `ICLR` 分支，保留现有未提交修改，不使用破坏性 reset。确认包含上述代码基线和本文件。
 
-识别 8 张 GPU 的型号、显存、占用、CPU 内存和磁盘空间。完整 checkpoint 预计需要约 2 TB 量级空间，视频另计。使用独立训练环境和独立 VBench 环境，遵守 `requirements.txt` / `requirements-vbench.txt`，记录软件版本、GPU 信息和实际 Git commit。所有实验组使用相同环境及同一组卡。
+识别 8 张 GPU 的型号、显存、占用、CPU 内存和磁盘空间。实验 A 共 4 runs，每组第 0、50、100、150、200 步共 5 个保存点，包含 raw、EMA 和恢复状态；按实测大小估算存储，另计 smoke、CD、轨迹和视频。使用独立训练环境和独立 VBench 环境，遵守 `requirements.txt` / `requirements-vbench.txt`，记录软件版本、GPU 信息和实际 Git commit。所有实验组使用相同环境及同一组卡。
 
 找到并核实以下资产：
 
@@ -34,7 +44,7 @@
 - Wan2.1-T2V-14B teacher。
 - 真实视频 latent LMDB。
 - 有训练来源记录的 raw causal ODE 初始化。
-- 论文 original/rectified CD checkpoints、原始配置和轨迹数据。
+- CD 原始训练配置、共享 raw 初始化，以及含 `curvature_dataset_manifest.json` 的配对 ODE 轨迹 LMDB。旧 original/rectified CD 权重已丢失，改为重训，不再把找回它们作为前置条件。
 
 所有 frame/chunk 对照必须使用同一份已确认的 raw 初始化。不能仅凭文件名认定身份，也不能默认将 `/data/fengjiaqi/model.pt` 当作 ODE 初始化。
 
@@ -42,14 +52,12 @@
 
 ## 二、先完成真实 GPU smoke 与恢复验证
 
-分别执行四种设置，各至少 10 iterations：
+先验证两种粒度，正则均关闭，各至少 10 iterations：
 
 - `frame_roff_s0`
-- `frame_ron_s0`
 - `chunk_roff_s0`
-- `chunk_ron_s0`
 
-使用 `experiments.iclr.make_configs` 与 `experiments.iclr.launch`，按运行手册生成 smoke 配置，在独立 tmux 中顺序运行。
+使用 `experiments.iclr.make_configs` 与 `experiments.iclr.launch`，按运行手册生成 smoke 配置，分别用 `--run` 指定上述两项，在独立 tmux 中顺序运行。smoke 不计入 4 个正式 frame/chunk run；正式 `frame_roff_s1` 和 `chunk_roff_s1` 也必须各自观察前 10 步。
 
 核对 losses、gradient norms、GAN logits、G/critic 实际更新次数、21 latent frames 的实际梯度窗口、各 rank 状态和 checkpoint 完整性。记录训练耗时、显存、CPU 内存及 checkpoint 大小。
 
@@ -58,49 +66,63 @@
 - 使用非最终的完整 checkpoint；必要时专门安排能产生中间 checkpoint 的 smoke。
 - 保持相同配置、world size、模型和优化器设置。
 - 恢复后真正继续执行更新，不能只加载最终 checkpoint 后立即退出。
-- 核对 step、optimizer、RNG、数据位置和累计训练时间。
+- 核对 step、optimizer、EMA、RNG、数据位置和累计训练时间。10 步 smoke 尚未启用 EMA；至少一次恢复检查需覆盖第 50 步后的 EMA checkpoint，可在正式 run 上按计划执行。
 
 导出固定 prompts 的 smoke 视频，实际检查动态画面。10 步模型质量差不等于实现错误，但需排除数值发散、解码错误和画面崩溃。
 
-如果 OOM 或出现实现问题，先诊断并修复。允许统一调整所有组的系统设置并记录；不允许只对某一组降低分辨率、缩短梯度窗口、换 teacher 或改变学习率来“跑通”对照。
+如果 OOM 或出现实现问题，先诊断并修复。保留 main 的计算设置；若必须调整 offload、精度或训练超参数，先说明与 main 的差异，再确定方案。不能只对某一组降低分辨率、缩短梯度窗口、换 teacher 或改变学习率来“跑通”对照。
 
 ## 三、正式实验 A：framewise/chunkwise 的受控稳定性
 
-完成 `2 × 2 × 3 = 12` 个训练运行：framewise/chunkwise，R1/R2 off/on，training seeds 0、1、2。
+完成以下 4 个正式训练运行，按表中顺序执行：
 
-使用 ICLR 统一配置：相同 raw 初始化、判别器结构、训练数据、batch、优化器、G:D 更新比例、正则定义、精度、offload 和分片设置。统一 21 latent frames、21 梯度帧和 score 帧。开启正则的定义保留代码中与旧 chunkwise 对齐的设置，不能只复制权重而改变归一化方式。
+| run | 粒度 | training seed | R1/R2 |
+|---|---|---:|---|
+| `frame_roff_s0` | framewise | 0 | 0 / 0 |
+| `chunk_roff_s0` | chunkwise | 0 | 0 / 0 |
+| `frame_roff_s1` | framewise | 1 | 0 / 0 |
+| `chunk_roff_s1` | chunkwise | 1 | 0 / 0 |
 
-根据 smoke/pilot 测得的完整 G/D 更新周期耗时，预先确定统一训练预算 T，使最慢组能覆盖约 750 iterations 的量级。运行手册中的 7200 秒是示例，不能未经测量就认定为合适预算。
+使用 pinned main 配置：相同 raw 初始化、判别器结构、训练数据、batch、优化器、G:D 更新比例、精度、offload 和分片设置。统一 21 latent frames 和 score 帧、`gradient_num_blocks=17`、EMA=0.99（从第 50 步开始），R1/R2=0。按 main 的规则，实际梯度窗口为 frame 17 帧 / chunk 21 帧，不额外覆盖；报告这一联动。同一 seed 内审计判别器初始化一致，跨 seed 按 main 的模型初始化规则变化。`--run all` 只运行上述 4 组，CD 用单独入口。
 
-正式实验按相同累计训练时间停止，不再把 200 与 750 步直接作为效率比较。保留 0、0.25T、0.5T、0.75T、T 的 checkpoint，报告实际保存时间及 overshoot。初始化、checkpoint I/O、训练与其他开销分别记录。
+**四个 run 都固定训练 200 iterations，随后立即结束。** 对应每组 40 次 generator 更新、200 次 critic 更新。保存 0、50、100、150、200 步，不再设置时间预算 T，也不延长到 750 步。smoke/pilot 只估算 ETA 和资源需求，耗时估算包含完整 G/D 更新周期。
 
-每个 seed 都保留，包括失败或发散的运行。不能更换不利 seed、挑最佳 checkpoint 或只报告成功组。执行初始化审计，确认实际加载的 generator/critic 权重一致。
+质量曲线按相同步数比较；初始化、checkpoint I/O、训练与其他开销分别记录，用实际时间报告成本。相同 iterations 不等于相同 wall-clock compute，不能将本实验标成严格等时长对照。
+
+每个 seed 都保留，包括失败或发散的运行。不能更换不利 seed、挑最佳 checkpoint 或只报告成功组。执行初始化审计，确认四组 generator 一致、同 seed 的 frame/chunk critic 一致。
 
 评测统一使用：
 
-- 同一套 944 个原始 VBench prompts。
-- 同一份生成 seed manifest，每 prompt 1 个样本。
-- Raw generator，不用 EMA。
-- 所有组统一 all1，不开 FFE。
+- 同一套 944 个 VBench prompts 的 pinned Qwen rewrites，评分仍使用 original prompts。
+- 同一份生成 seed manifest，每 prompt 5 个样本。
+- EMA generator；第 0 步无 EMA，单独标为 raw 初始化参考。
+- main 的 `main_ffe`：固定 block，第一个 block 四步，后续一步。不要用 review 的 `ffe`。
 - 全部 16 个 VBench 维度。
 
-使用 `evaluate curve` 和 `summarize`，输出真实训练时间轴上的各 seed 曲线、G/critic updates、三训练 seeds 的均值和样本 SD、固定预算终点表，以及 dynamic degree、imaging quality、subject consistency 等分项。保留固定 prompts 的视频对照和视觉检查记录。
+使用 `evaluate curve` 和 `summarize`，输出训练步数轴上的 4 条 run 曲线、G/critic updates、200 步终点表和实际训练耗时，以及 dynamic degree、imaging quality、subject consistency 等分项。`same_seed_comparison.csv` 分别报告 seeds 0、1 的 frame−chunk 差值；`paired_step_summary.csv` 报告这两个配对差值的均值和样本 SD。frame 和 chunk 均报告 n=2 的得分均值、样本 SD 和每次运行结果。保留固定 prompts 的视频对照和视觉检查记录。
 
-这一协议与论文 83.76 的设置不同，不以“必须达到 83.76”作为验收标准。未完成或发散的 seed 必须如实报告，不能为凑齐表格删除失败结果。
+报告中明确：该方案检验了关闭正则、相同 200 iterations 下的粒度差异，并对两种粒度各做两个 seeds 的重复性检查。n=2 仍是小样本，不据此声称统计显著或普遍稳定；本轮未做正则开/关消融。
 
-## 四、正式实验 B：original/rectified CD 的一步与四步
+完整曲线汇总自动输出 `step200_seed_summary.csv`，含两个 frame seeds 的 EMA 结果，无需重复评测。只需终点时可选择 `evaluate curve --reference-step 200` 和 `summarize --reference-step 200`。历史 rewrite/随机流未归档，因此不以“必须恰好达到 83.76”作为验收标准。未完成或发散的 seed 必须如实报告。
 
-优先找到论文原始两个 300-update checkpoint，核对来源和配置，评测四个条件：Original × all1、Original × all4、Rectified × all1、Rectified × all4。
+## 四、正式实验 B：重训 original/rectified CD，再评测一步与四步
 
-统一原始 prompts、生成 seeds、raw 权重和全 16 维评测。all1 必须所有 block 都一步，禁止开启 FFE。
+用户已确认旧 CD 权重找不到。使用 `experiments.iclr.cd` 从同一份已核实的 raw 初始化开始，重新训练以下两组，不从丢失的 CD checkpoint 续训：
 
-使用 `experiments.iclr.evaluate cd` 和 `summarize_cd` 生成四条件表及配对增益，检查对应视频的运动冻结、结构崩溃和视觉质量。单一训练 seed 的配对聚合增益不能解释为训练 seed 的置信区间。
+| 组别 | 代码中的 intervention / 目录 | training seed | 更新数 |
+|---|---|---:|---:|
+| Original | `curved` | 0 | 300 |
+| Rectified | `rectified` | 0 | 300 |
 
-需要训练预算曲线时，使用同一配置从头训练到 900，保存 300/600/900。旧 checkpoint 缺少 optimizer/target 状态时，不得声称无缝续训。
+两组只改变轨迹干预，共享初始化、prompts、初始噪声、ODE 端点、clean conditioning、timesteps、数据顺序及训练配置。`--generator-ckpt` 指配对轨迹数据的原始 raw 初始化，不是丢失的已训练 CD 权重。先核实这份初始化与轨迹 LMDB 的来源和配对关系；若轨迹也缺失，按仓库 CD 数据流程重新准备，不能用普通真实视频 latent 或实验 C 的完整 teacher 轨迹替代。
 
-特别注意：CD 工具默认继承 review 分支的 **9 latent frames 小实验配置**。先核对论文原始设置，不能把默认 9 帧实验直接称为论文复现。两个 arm 必须使用同一份已确认配置。训练中的 EMA target 与评测使用的 raw generator 要区分。
+两组在独立 tmux 中顺序训练，各自至少盯到第 10 步。固定使用 step-300 raw generator，输出分别为 `cd_train/seed0/curved/checkpoint_model_000300/model.pt` 和 `cd_train/seed0/rectified/checkpoint_model_000300/model.pt`。保留配置、数据 manifest、sample-order digest、训练日志和权重来源；训练完成后核对两组配对信息并实际检查视频。
 
-原论文 checkpoints 或轨迹缺失时，列出缺失内容，继续 A/C，不用未知 checkpoint 替代。若有合法且已核实的资产可以构建新受控实验，明确标为新实验，保留来源和配置。
+然后评测四个条件：Original × all1、Original × all4、Rectified × all1、Rectified × all4。统一原始 prompts、生成 seeds、raw 权重和全 16 维评测。all1 必须所有 block 都一步，禁止开启 FFE。使用 `experiments.iclr.evaluate cd` 和 `summarize_cd` 生成四条件表及配对增益，检查对应视频的运动冻结、结构崩溃和视觉质量。单一训练 seed 的配对聚合增益不能解释为训练 seed 的置信区间。
+
+本轮只要求这 2 个 seed-0、300-update run，不自动增加 600/900 或其他 seeds。现有 CD trainer 仅保存 raw 权重，未保存 optimizer/EMA-target 恢复状态；中断或以后需要更长预算时，必须从共同初始化重跑，不能把加载 step-300 权重称为无缝续训。
+
+CD 工具默认继承 review 分支的 **9 latent frames 小实验配置**。先核对论文原始设置，不能把默认 9 帧实验直接称为论文复现。两个 arm 必须使用同一份已确认配置。训练中的 EMA target 与评测使用的 raw generator 要区分。重训结果标注为本轮重跑，不把仓库历史分数冒充本轮结果。若共享初始化或轨迹仍缺失，明确列出这两个实际阻塞项并继续 A/C；旧 CD 权重丢失本身不再阻塞 B。
 
 ## 五、正式实验 C：时间参数化与路径几何
 
@@ -117,7 +139,18 @@
 
 50/200-step 对比只使用共同的 20 个 prompts。区分速度偏差、路径几何和因果解释，不预设结果一定支持论文的原强结论。高噪声局部干预属于后续可选实验，不以它阻塞本次三个必做实验。
 
-## 六、持续沟通和最终交付
+## 六、较低优先级 D/E：主表协议与 prompts 补充评测
+
+完成可执行的 A/B/C 后追加评测；CPU 协议核对可穿插进行，不抢占 P0 的训练或评测 GPU。执行[合并任务](ICLR_REVIEWER_COVERAGE.md)中的 P1-D/P1-E：
+
+1. 填写 [Table 2 协议核对表](ICLR_BASELINE_PROTOCOL_AUDIT.csv)，区分统一重评、作者报告和未知来源，逐行说明 prompt rewriting、raw/EMA、FFE/NFE、样本数和评测版本。
+2. 找到来源已核实的主模型 checkpoint，使用 `experiments.iclr.prompt_ablation` 比较 original 与 pinned-Qwen，保持 checkpoint、权重来源、采样方案及噪声 seeds 不变。默认 944×1，标为补充评测，不能与历史 944×5 混报。
+3. 对有真实权重和可验证推理路径的一步基线补 original prompts，形成可用模型的共同协议表；四步 Self Forcing 仅为单独的四步参考。缺失基线如实标注，不用历史分数或非原生 checkpoint 填表。
+4. 复用已有 GAN 消融和本轮 CD 结果回应相似问题，不新增重复训练、正则开启组或第三个 training seed。
+
+P0-A 现已恢复 main 的训练设置；两个 frame seeds 的第 200 步 EMA 表可回答标准配置的初步训练重复性。明确 n=2、固定的新 Qwen 评测资产和历史随机流限制；step-400 或多个生成 seeds 不能代替这张第 200 步表，0.30 分优势仍不应声称统计显著。
+
+## 七、持续沟通和最终交付
 
 定期报告当前运行、step、耗时、ETA、已完成事项、缺失资产和失败原因。任何设置调整都说明是否影响受控比较。
 
@@ -125,11 +158,13 @@
 
 1. 运行目录、tmux/log/checkpoint 路径、配置、环境与初始化来源记录。
 2. GPU smoke、FSDP 恢复、评测和视频检查的真实完成状态。
-3. 四组 matched-time 曲线和三 seed 终点表。
-4. CD all1/all4 结果表。
+3. 四个 run 在 0/50/100/150/200 步的质量曲线、各自实际耗时、seeds 0/1 的 frame/chunk 配对差值及其均值/样本 SD，以及第 200 步 EMA 表。
+4. 两个重新训练的 CD step-300 raw checkpoints、配对训练记录和 all1/all4 结果表。
 5. 时间参数化与几何复核结果。
 6. 固定 prompt 视频对照及视觉检查记录。
 7. 可用于 rebuttal 的中文结果说明，包含负结果、局限及应收敛的论文表述。
 8. 若修改代码，给出 Git commit 和复现命令。
+9. Table 2 的逐行协议核对表，以及可用主模型/基线的 original prompts 补充表和主模型 original/Qwen 配对结果。
+10. 分别给 nPEg、PkyQ、o6Jx 的回应要点，明确共享证据、n=2 方差的局限与历史协议缺项；所有评测与训练条件分清。
 
 **不要将 dry-run、CPU toy 测试或成功加载 checkpoint 当成真实 GPU 实验完成。**

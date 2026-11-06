@@ -1,4 +1,4 @@
-"""CPU-testable training budget, counters and restartable data order."""
+"""Fixed iteration budget, elapsed-time counters and restartable data order."""
 from dataclasses import asdict, dataclass, field
 import itertools
 import math
@@ -6,29 +6,29 @@ import math
 
 @dataclass
 class TrainingClock:
-    budget_seconds: float
-    fractions: tuple = (0.0, 0.25, 0.5, 0.75, 1.0)
+    max_steps: int = 200
+    save_steps: tuple = (0, 50, 100, 150, 200)
     training_seconds: float = 0.0
     checkpoint_seconds: float = 0.0
     overhead_seconds: float = 0.0
     critic_updates: int = 0
     generator_updates: int = 0
     step: int = 0
-    saved_fractions: list = field(default_factory=list)
+    saved_steps: list = field(default_factory=list)
 
     def __post_init__(self):
-        self.fractions = tuple(self.fractions)
-        if not math.isfinite(self.budget_seconds) or self.budget_seconds <= 0:
-            raise ValueError("budget_seconds must be finite and positive")
-        if (tuple(sorted(set(self.fractions))) != self.fractions
-                or not self.fractions or self.fractions[0] != 0 or self.fractions[-1] != 1):
-            raise ValueError("fractions must increase strictly from zero to one")
-        if any(not 0 <= x <= 1 for x in self.fractions):
-            raise ValueError("fractions must be in [0, 1]")
+        self.save_steps = tuple(self.save_steps)
+        if not isinstance(self.max_steps, int) or self.max_steps <= 0:
+            raise ValueError("max_steps must be a positive integer")
+        if (tuple(sorted(set(self.save_steps))) != self.save_steps
+                or not self.save_steps or self.save_steps[0] != 0 or self.save_steps[-1] != self.max_steps):
+            raise ValueError("save_steps must increase strictly from zero to max_steps")
+        if any(not isinstance(x, int) or not 0 <= x <= self.max_steps for x in self.save_steps):
+            raise ValueError("save_steps must be integer iteration boundaries")
 
     @property
     def exhausted(self):
-        return self.training_seconds >= self.budget_seconds
+        return self.step >= self.max_steps
 
     def advance(self, seconds, *, generator, critic=True):
         if not math.isfinite(seconds) or seconds < 0:
@@ -39,12 +39,9 @@ class TrainingClock:
         self.generator_updates += int(generator)
 
     def due(self):
-        return [x for x in self.fractions if x not in self.saved_fractions
-                and self.training_seconds >= self.budget_seconds * x]
+        return [x for x in self.save_steps if x not in self.saved_steps and self.step >= x]
 
-    def should_continue(self, mode, max_steps):
-        if mode == "smoke":
-            return self.step < max_steps
+    def should_continue(self):
         return not self.exhausted
 
     def state_dict(self):
@@ -61,11 +58,12 @@ class RestartableStream:
     No model RNG is consumed by DataLoader initialization. Only deterministic
     datasets with num_workers=0 are supported by the ICLR protocol.
     """
-    def __init__(self, dataset, *, batch_size, seed, rank=0, world_size=1):
+    def __init__(self, dataset, *, batch_size, seed, rank=0, world_size=1, fixed_sampler_epoch=False):
         import torch
         self.dataset = dataset
         self.batch_size, self.seed = int(batch_size), int(seed)
         self.rank, self.world_size = int(rank), int(world_size)
+        self.fixed_sampler_epoch = bool(fixed_sampler_epoch)
         self.epoch = self.batch = 0
         self._iterator = None
         self.sampler = torch.utils.data.DistributedSampler(
@@ -85,7 +83,8 @@ class RestartableStream:
             self.batch = 0
             self._iterator = None
         if self._iterator is None:
-            self.sampler.set_epoch(self.epoch)
+            # main's cycle() never calls set_epoch; retain that ordering for the main profile.
+            self.sampler.set_epoch(0 if self.fixed_sampler_epoch else self.epoch)
             batches = torch.utils.data.BatchSampler(self.sampler, self.batch_size, True)
             remaining = list(itertools.islice(batches, self.batch, None))
             loader = torch.utils.data.DataLoader(
@@ -99,7 +98,7 @@ class RestartableStream:
     def state_dict(self):
         return {"epoch": self.epoch, "batch": self.batch, "dataset_size": len(self.dataset),
                 "batch_size": self.batch_size, "seed": self.seed, "rank": self.rank,
-                "world_size": self.world_size}
+                "world_size": self.world_size, "fixed_sampler_epoch": self.fixed_sampler_epoch}
 
     def load_state_dict(self, state):
         current = self.state_dict()

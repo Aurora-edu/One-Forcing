@@ -16,6 +16,7 @@ from experiments.iclr.protocol import REPO
 from experiments.iclr.make_configs import make_matrix
 from experiments.iclr.state import RestartableStream, TrainingClock
 from utils.config import load_config
+import utils.distributed as distributed_utils
 
 
 @pytest.fixture
@@ -30,16 +31,18 @@ def cpu_runtime(monkeypatch):
     monkeypatch.setattr(torch.cuda, "get_rng_state", lambda *args: torch.get_rng_state())
     monkeypatch.setattr(torch.cuda, "set_rng_state", lambda *args: None)
     monkeypatch.setattr(implementation, "fsdp_state_dict", lambda module: module.state_dict())
+    monkeypatch.setattr(distributed_utils, "fsdp_state_dict", lambda module: {k: v.clone() for k, v in module.state_dict().items()})
 
 
 class ToyTrainer(implementation.ICLRTrainer):
     def __init__(self, output):
         base = load_config(str(REPO / "experiments/iclr/configs/base.yaml"))
         self.config = make_matrix(base, generator_ckpt="/missing/ode.pt", teacher="/missing/teacher",
-            data="/missing/data", prompt_cache="", budget_seconds=20, smoke=True)[0]
+            data="/missing/data", prompt_cache="", smoke=True)[0]
         self.output_path = str(output)
         output.mkdir(parents=True, exist_ok=True)
         self.config.logdir = self.output_path
+        self.config.ema_start_step = 5  # Exercise EMA initialization/update/resume in ten CPU iterations.
         self.device = torch.device("cpu")
         self.world_size = 1
         self.is_main_process = True
@@ -48,8 +51,10 @@ class ToyTrainer(implementation.ICLRTrainer):
         self.step = 0
         self.restart = None
         self.initialization = {"generator_tensor_sha256": "toy", "critic_tensor_sha256": "toy"}
-        self.clock = TrainingClock(20)
+        self.clock = TrainingClock(10, (0, 5, 10))
         self.model = SimpleNamespace(generator=torch.nn.Linear(2, 2), fake_score=torch.nn.Linear(2, 2))
+        object.__setattr__(self.model.generator, "module", self.model.generator)
+        self.generator_ema = None
         self.generator_optimizer = torch.optim.AdamW(self.model.generator.parameters(), lr=.01)
         self.critic_optimizer = torch.optim.AdamW(self.model.fake_score.parameters(), lr=.01)
         self.dataloader = RestartableStream(list(range(13)), batch_size=2, seed=0)
@@ -125,6 +130,10 @@ def test_real_loop_full_state_restart_equals_uninterrupted_and_never_reloads_ini
     assert tensors_equal(full.model.fake_score.state_dict(), resumed.model.fake_score.state_dict())
     assert tensors_equal(full.generator_optimizer.state_dict(), resumed.generator_optimizer.state_dict())
     assert tensors_equal(full.critic_optimizer.state_dict(), resumed.critic_optimizer.state_dict())
+    assert tensors_equal(full.generator_ema.state_dict(), resumed.generator_ema.state_dict())
+    assert not tensors_equal(full.generator_ema.state_dict(), full.model.generator.state_dict())
+    payload = torch.load(tmp_path/"resumed"/"checkpoint_model_000010"/"model.pt", weights_only=True)
+    assert tensors_equal(payload["generator_ema"], full.generator_ema.state_dict())
     assert full.dataloader.state_dict() == resumed.dataloader.state_dict()
     assert torch.equal(expected_rng, torch.get_rng_state())
     assert expected_np == np.random.rand()
@@ -151,6 +160,27 @@ def test_weights_only_incomplete_or_different_topology_resume_is_rejected(cpu_ru
         implementation.read_complete_checkpoint(directory, toy.config, 1)
     with pytest.raises(FileExistsError):
         toy.save()  # Never overwrite a partially written checkpoint directory.
+
+
+@pytest.mark.parametrize("block,seconds", [(1, .01), (1, 10000.), (3, .01), (3, 10000.)])
+def test_formal_loop_stops_both_methods_at_200_and_saves_five_checkpoints(cpu_runtime, tmp_path, block, seconds):
+    toy = ToyTrainer(tmp_path / "formal")
+    toy.config.iclr_mode = "formal"
+    toy.config.num_frame_per_block = block
+    toy.config.max_steps = toy.max_steps = 200
+    toy.config.iclr_save_steps = [0, 50, 100, 150, 200]
+    toy.clock = TrainingClock()
+    toy._synchronized_seconds = lambda started: seconds
+    toy.train()
+    rows = [json.loads(line) for line in (tmp_path/"formal"/"checkpoints.jsonl").read_text().splitlines()]
+    assert [r["step"] for r in rows] == [0, 50, 100, 150, 200]
+    assert all(r["milestones"] == [r["step"]] and r["max_steps"] == 200 for r in rows)
+    assert (toy.step, toy.clock.generator_updates, toy.clock.critic_updates) == (200, 40, 200)
+    assert toy.clock.training_seconds == pytest.approx(200 * seconds)
+    assert "generator_ema" in rows[-1]["available_weights"]
+    done = json.loads((tmp_path/"formal"/"training.done").read_text())
+    assert done["formal_result"] is True and done["step_budget_reached"] is True
+    assert done["stop_condition"] == "fixed_steps"
 
 
 def test_raw_loader_never_falls_back_to_ema(cpu_runtime, tmp_path):

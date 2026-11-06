@@ -1,7 +1,8 @@
-"""Paired CD training from scratch to 300/600/900, reusing reviewer trainer.
+"""Retrain both CD arms from shared initialization for 300 updates by default.
 
 The reviewer CD trainer does not save optimizer or EMA-target restart state.
 This command therefore NEVER offers resume or extends an old 300-step run.
+Longer 600/900-update runs require an explicit --steps choice.
 """
 import argparse
 import os
@@ -28,9 +29,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default=str(REPO / "experiments/rebuttal/configs/train_curvature_cd_small.yaml"))
     parser.add_argument("--data", required=True, help="paired ODE trajectory LMDB with manifest")
-    parser.add_argument("--generator-ckpt", required=True)
+    parser.add_argument("--generator-ckpt", required=True,
+                        help="shared raw initialization used to generate the paired ODE data; not a trained CD checkpoint")
     parser.add_argument("--output", default="/data/fengjiaqi/iclr/cd")
-    parser.add_argument("--steps", type=int, choices=(300, 600, 900), default=900)
+    parser.add_argument("--steps", type=int, choices=(300, 600, 900), default=300,
+                        help="updates per arm (default: 300); longer budgets must be chosen explicitly")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--prompt-cache", default="")
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")

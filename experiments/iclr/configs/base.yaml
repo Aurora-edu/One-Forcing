@@ -1,66 +1,29 @@
-# Opt-in ICLR protocol. Generated configs are flattened, so migration does not
-# rely on these relative inheritance paths at training time.
-_base_: ../../../config.yaml
+# Scientific settings are the unmodified main/config.yaml snapshot.
+# Only block size and training seed vary across the four ablation runs.
+_base_: main_reference.yaml
 trainer: iclr
 experiment_id: iclr
-dataset_type: clean_latent_lmdb
-data_path: /data/fengjiaqi/One-Forcing/mixkit_latents_lmdb
-teacher_model_path: /data/fengjiaqi/wan_models/Wan2.1-T2V-14B
-# Must be supplied and its provenance verified by the experiment owner.
-generator_ckpt: ""
-generator_ckpt_after_resume: ""
-resume_ckpt: ""
-rank0_preload_generator_ckpt: true
-rank0_preload_resume_ckpt: true
-resume_ema_from_ckpt: false
-seed: 0
-randomize_seed: false
-iclr_initialization_seed: 12345
+iclr_profile: main_block_ablation_200_v2
+iclr_reference_commit: c9a2350e8740531562011fc9618e1a928d911ae0
+iclr_reference_step: 200
 iclr_expected_world_size: 8
 iclr_mode: formal
-iclr_budget_seconds: 0
-iclr_save_fractions: [0.0, 0.25, 0.5, 0.75, 1.0]
-max_steps: 0
-log_iters: 0
-ema_weight: 0.0
+iclr_stop_condition: fixed_steps
+iclr_save_steps: [0, 50, 100, 150, 200]
+iclr_eval_schedule: main_ffe
+iclr_eval_weight_source: generator_ema
+iclr_eval_conditioning: pinned_qwen
+iclr_eval_samples_per_prompt: 5
+# Paths, reproducible seeds and checkpoint instrumentation only.
+generator_ckpt: ""
+generator_ckpt_after_resume: ""
+teacher_model_path: /data/fengjiaqi/wan_models/Wan2.1-T2V-14B
+data_path: /data/fengjiaqi/One-Forcing/mixkit_latents_lmdb
+dataset_type: clean_latent_lmdb
+rank0_preload_generator_ckpt: true
+rank0_preload_resume_ckpt: true
+randomize_seed: false
 no_save: false
 no_visualize: true
 disable_wandb: true
 wandb_save_dir: ""
-load_raw_video: false
-num_training_frames: 21
-num_frame_per_block: 1
-gradient_num_blocks: 0
-gradient_num_frames: 21
-gradient_window_position: tail
-score_num_frames: 21
-score_window_position: tail
-rollout_schedule: fixed
-same_step_across_blocks: true
-independent_first_frame: false
-i2v: false
-last_step_only: false
-denoising_step_list: [1000]
-separate_gan_discriminator_optimizer: false
-gan_discriminator_type: attention
-gan_feature_source: fake_score
-gan_feature_layers: [21, 29]
-gan_num_registers: 2
-gan_block_ffn_dim: 2048
-gan_block_num_heads: 12
-discriminator_feature_dim: 1536
-gan_num_class: 1
-gan_g_weight: 0.03
-gan_d_weight: 0.03
-r1_weight: 0.0
-r2_weight: 0.0
-r1_sigma: 0.1
-r2_sigma: 0.01
-r1_loss_type: apt
-dataloader_num_workers: 0
-manual_generator_backward: true
-generator_optimizer_state_cpu_offload: true
-model_kwargs:
-  timestep_shift: 5.0
-  local_attn_size: 21
-  sink_size: 0

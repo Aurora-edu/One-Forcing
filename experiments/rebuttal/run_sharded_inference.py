@@ -172,7 +172,7 @@ def main():
     parser.add_argument("--output_folder", required=True)
     parser.add_argument("--gpus", required=True)
     parser.add_argument("--method", choices=["framewise", "chunkwise"], default="framewise")
-    parser.add_argument("--schedule", choices=["all1", "ffe", "all4"], default="ffe")
+    parser.add_argument("--schedule", choices=["all1", "ffe", "all4", "main_ffe"], default="ffe")
     parser.add_argument("--num_output_frames", type=int, default=21)
     parser.add_argument("--fps", type=int, default=16)
     parser.add_argument("--limit", type=int, default=-1)

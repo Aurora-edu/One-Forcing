@@ -82,8 +82,8 @@ for value_name in NAME CONFIG_PATH CHECKPOINT_PATH SCHEDULE PROMPT_PATH \
   fi
 done
 case "${SCHEDULE}" in
-  all1|ffe|all4) ;;
-  *) echo "--schedule must be all1, ffe, or all4" >&2; exit 1 ;;
+  all1|ffe|all4|main_ffe) ;;
+  *) echo "--schedule must be all1, ffe, all4, or main_ffe" >&2; exit 1 ;;
 esac
 case "${METHOD}" in
   framewise|chunkwise) ;;

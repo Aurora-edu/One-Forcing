@@ -1,6 +1,8 @@
 """CPU-only regression tests for the controlled ICLR experiment protocol."""
 import json
+import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -11,50 +13,142 @@ import torch
 
 from experiments.iclr.evaluate import cd_cells, curve_cells, command_for_cell, validate_manifest
 from experiments.iclr.make_configs import make_matrix
-from experiments.iclr.protocol import REPO, tensor_state_sha256, validate_matrix
+from experiments.iclr.protocol import REPO, MAIN_REFERENCE, REFERENCE_RUNTIME_FIELDS, effective_gradient_frames, tensor_state_sha256, validate_config, validate_matrix
 from experiments.iclr.state import RestartableStream, TrainingClock
 from experiments.iclr.trajectory import geometry, load_physical_trajectory, velocity_proxy
 from utils.config import load_config
 
 
-def matrix(smoke=False, budget=20):
+def matrix(smoke=False):
     return make_matrix(load_config(str(REPO / "experiments/iclr/configs/base.yaml")),
         generator_ckpt="/missing/verified_ode.pt", teacher="/missing/teacher",
-        data="/missing/data", prompt_cache="", budget_seconds=budget, smoke=smoke)
+        data="/missing/data", prompt_cache="", smoke=smoke)
 
 
-def test_strict_12_run_matrix_detects_hidden_confounders():
+def test_strict_four_run_matrix_detects_hidden_confounders():
     configs = matrix()
-    assert len(configs) == 12
-    assert {(c.num_frame_per_block, c.r1_weight > 0, c.seed) for c in configs} == {
-        (b, r, s) for b in (1, 3) for r in (False, True) for s in (0, 1, 2)}
-    assert all(c.gradient_num_blocks == 0 and c.gradient_num_frames == 21 for c in configs)
-    assert all(c.ema_weight == 0 and c.r1_loss_type == "apt" and c.r1_sigma == .1 for c in configs)
-    configs[-1].gan_num_registers = 1
+    assert [(c.experiment_id, c.num_frame_per_block, c.seed) for c in configs] == [
+        ("frame_roff_s0", 1, 0), ("chunk_roff_s0", 3, 0),
+        ("frame_roff_s1", 1, 1), ("chunk_roff_s1", 3, 1)]
+    assert all(c.r1_weight == 0 and c.r2_weight == 0 for c in configs)
+    assert all(c.gradient_num_blocks == 17 and "gradient_num_frames" not in c for c in configs)
+    assert [effective_gradient_frames(c) for c in configs] == [17, 21, 17, 21]
+    assert all(c.ema_weight == .99 and c.ema_start_step == 50 and c.max_steps == 200 for c in configs)
+    configs[-1].prompt_embedding_cache_path = "/different_cache"
     with pytest.raises(ValueError, match="uncontrolled"):
         validate_matrix(configs)
-    with pytest.raises(ValueError, match="12 runs"):
-        validate_matrix(configs[:4])
+    with pytest.raises(ValueError, match="4 runs"):
+        validate_matrix(configs[:3])
+    with pytest.raises(ValueError, match="4 runs"):
+        validate_matrix(matrix() * 3)
 
 
-def test_clock_thresholds_overrun_counters_and_resume():
-    clock = TrainingClock(100)
+@pytest.mark.parametrize("field,value", [("r1_weight", 1.), ("r2_weight", .001),
+                                        ("seed", 2), ("experiment_id", "chunk_roff_s1")])
+def test_four_run_protocol_rejects_unauthorized_arms(field, value):
+    configs = matrix()
+    configs[1][field] = value
+    with pytest.raises(ValueError, match="main reference|both be off|allowed runs"):
+        validate_matrix(configs)
+
+
+def test_four_run_protocol_rejects_duplicates_and_wrong_order():
+    configs = matrix()
+    with pytest.raises(ValueError, match="order/cell mismatch"):
+        validate_matrix([configs[1], configs[0], configs[2], configs[3]])
+    with pytest.raises(ValueError, match="order/cell mismatch"):
+        validate_matrix([configs[0], configs[0], configs[2], configs[3]])
+
+
+def test_all_scientific_settings_match_pinned_main_except_block_size():
+    reference = OmegaConf.load(MAIN_REFERENCE)
+    for config in matrix():
+        for key in reference:
+            if key not in REFERENCE_RUNTIME_FIELDS:
+                assert config[key] == reference[key], key
+    changed = matrix()[0]
+    changed.ema_weight = 0
+    with pytest.raises(ValueError, match="main reference"):
+        validate_config(changed)
+    changed = matrix()[0]
+    changed.gradient_num_blocks = 0
+    changed.gradient_num_frames = 21
+    with pytest.raises(ValueError, match="main reference"):
+        validate_config(changed)
+
+
+@pytest.mark.parametrize("seconds", [.001, 1., 10000.])
+def test_formal_clock_stops_at_exactly_200_regardless_of_elapsed_time(seconds):
+    clock = TrainingClock()
+    for step in range(200):
+        assert clock.should_continue()
+        clock.advance(seconds, generator=step % 5 == 0)
+    assert not clock.should_continue()
+    assert (clock.step, clock.generator_updates, clock.critic_updates) == (200, 40, 200)
+
+
+def test_protocol_rejects_old_time_budget_and_non200_formal_steps():
+    config = matrix()[0]
+    config.max_steps = 750
+    with pytest.raises(ValueError, match="200"):
+        validate_config(config)
+    config = matrix()[0]
+    config.iclr_budget_seconds = 7200
+    with pytest.raises(ValueError, match="time-budget"):
+        validate_config(config)
+
+
+@pytest.mark.parametrize("method,block", [("framewise", 1), ("chunkwise", 3)])
+def test_main_ffe_shell_config_and_pipeline_keep_fixed_blocks(tmp_path, method, block):
+    # Run the actual config-producing shell path, but replace GPU export with a no-op.
+    stub = tmp_path / "python_without_export"
+    stub.write_text("#!/bin/sh\nif [ \"$1\" = \"-\" ]; then\n  exec "
+                    + shlex.quote(sys.executable) + " \"$@\"\nfi\nexit 0\n")
+    stub.chmod(0o755)
+    checkpoint = tmp_path / "unused.pt"
+    checkpoint.touch()
+    prompts = tmp_path / "prompts.txt"
+    prompts.write_text("A bird flying\n")
+    out = tmp_path / "export"
+    subprocess.run(["bash", "scripts/infer.sh", "--method", method, "--schedule", "main_ffe",
+                    "--config_path", str(MAIN_REFERENCE), "--checkpoint_path", str(checkpoint),
+                    "--prompt_path", str(prompts), "--output_folder", str(out)],
+                   cwd=REPO, env={**os.environ, "PYTHON_BIN": str(stub)}, check=True, capture_output=True)
+    cfg = load_config(str(out / f"infer_config_{method}_main_ffe_shard0.yaml"))
+    assert cfg.model_kwargs == OmegaConf.load(MAIN_REFERENCE).model_kwargs
+    assert cfg.num_frame_per_block == block and cfg.rollout_schedule == "fixed"
+    from types import SimpleNamespace
+    from pipeline.causal_inference import CausalInferencePipeline
+    dummy = SimpleNamespace(model=SimpleNamespace(local_attn_size=-1),
+                            get_scheduler=lambda: SimpleNamespace(timesteps=torch.linspace(1000, 1, 1000)))
+    pipeline = CausalInferencePipeline(cfg, device=torch.device("cpu"), generator=dummy,
+                                       text_encoder=object(), vae=object())
+    assert pipeline._build_rollout_frame_counts(21, None) == [block] * (21 // block)
+    assert len(pipeline._block_denoising_step_list(0)) == 4
+    assert len(pipeline._block_denoising_step_list(1)) == 1
+
+
+def test_clock_step_milestones_counters_and_resume():
+    clock = TrainingClock(10, (0, 5, 10))
     assert clock.due() == [0]
-    clock.saved_fractions += clock.due()
-    clock.advance(31, generator=True)
-    assert clock.due() == [.25]
-    clock.saved_fractions += clock.due()
+    clock.saved_steps += clock.due()
+    for step in range(5):
+        clock.advance(31, generator=step % 5 == 0)
+    assert clock.due() == [5]
+    clock.saved_steps += clock.due()
     clock = TrainingClock.from_state_dict(clock.state_dict())
-    clock.advance(71, generator=False)
-    assert clock.due() == [.5, .75, 1]
-    assert clock.exhausted and clock.training_seconds == 102
-    assert (clock.generator_updates, clock.critic_updates) == (1, 2)
-    assert not clock.should_continue("formal", 0)
+    assert clock.due() == []
+    for step in range(5, 10):
+        clock.advance(71, generator=step % 5 == 0)
+    assert clock.due() == [10]
+    assert clock.exhausted and clock.training_seconds == 510
+    assert (clock.generator_updates, clock.critic_updates) == (2, 10)
+    assert not clock.should_continue()
 
 
-def test_smoke_small_time_budget_still_covers_10_steps():
-    clock = TrainingClock(.0001)
-    while clock.should_continue("smoke", 10):
+def test_smoke_always_covers_10_steps():
+    clock = TrainingClock(10, (0, 5, 10))
+    while clock.should_continue():
         clock.advance(1, generator=clock.step % 5 == 0)
     assert (clock.step, clock.critic_updates, clock.generator_updates) == (10, 10, 2)
     assert clock.exhausted
@@ -83,6 +177,19 @@ def test_tensor_hash_tracks_actual_values_and_dtype():
     a = {"x": torch.arange(5, dtype=torch.float32)}
     assert tensor_state_sha256(a) == tensor_state_sha256({"x": a["x"].clone()})
     assert tensor_state_sha256(a) != tensor_state_sha256({"x": a["x"].half()})
+
+
+def test_main_data_order_repeats_the_original_sampler_epoch_and_resumes():
+    stream = RestartableStream(list(range(12)), batch_size=1, seed=0,
+                               rank=0, world_size=2, fixed_sampler_epoch=True)
+    first = [next(stream).item() for _ in range(6)]
+    assert [next(stream).item() for _ in range(6)] == first
+    next(stream)
+    saved = stream.state_dict()
+    resumed = RestartableStream(list(range(12)), batch_size=1, seed=0,
+                                rank=0, world_size=2, fixed_sampler_epoch=True)
+    resumed.load_state_dict(saved)
+    assert [next(resumed).item() for _ in range(10)] == [next(stream).item() for _ in range(10)]
 
 
 def test_variable_speed_straight_line_has_no_geometry_but_nonzero_proxy():
@@ -156,11 +263,12 @@ def test_cd_cells_and_chunk_curve_use_actual_method(tmp_path):
     cells = cd_cells("missing_original.pt", "missing_rectified.pt", "config.yaml")
     assert {(c["name"], c["schedule"]) for c in cells} == {
         (f"cd_{arm}_{schedule}", schedule) for arm in ("original", "rectified") for schedule in ("all1","all4")}
-    row = {"step": 7, "checkpoint": "/missing/chunk.pt", "method": "chunkwise",
+    row = {"step": 50, "checkpoint": "/missing/chunk.pt", "method": "chunkwise",
            "weight_source": "generator", "schedule": "all1", "training_seconds": 12.3,
-           "generator_updates": 2, "critic_updates": 7, "fractions": [.25],
-           "seed": 1, "r1_weight": 0., "r2_weight": 0., "mode": "formal",
-           "experiment_id": "chunk_roff_s1", "budget_seconds": 40}
+           "generator_updates": 10, "critic_updates": 50, "milestones": [50],
+           "seed": 0, "r1_weight": 0., "r2_weight": 0., "mode": "formal",
+           "experiment_id": "chunk_roff_s0", "max_steps": 200, "stop_condition": "fixed_steps",
+           "profile": "main_block_ablation_200_v2", "available_weights": ["generator", "generator_ema"]}
     index = tmp_path / "checkpoints.jsonl"
     index.write_text(json.dumps(row)+"\n")
     cell = curve_cells(index, "missing.yaml")[0]
@@ -170,7 +278,8 @@ def test_cd_cells_and_chunk_curve_use_actual_method(tmp_path):
         output="eval", gpus="0,1,2,3,4,5,6,7", vbench_python="vbpython", python=sys.executable)
     command = command_for_cell(cell, args)
     assert command[command.index("--method") + 1] == "chunkwise"
-    assert "--require_no_ema" in command and "--use_ema" not in command
+    assert "--use_ema" in command and "--require_no_ema" not in command
+    assert cell["schedule"] == "main_ffe"
 
 
 @pytest.mark.parametrize("module", ["make_configs", "train", "launch", "evaluate", "cd", "trajectory"])
@@ -183,7 +292,7 @@ def test_new_cli_help_without_gpu_or_weight_access(module):
 def test_no_weight_dryrun_command_chain(tmp_path):
     root = tmp_path / "configs"
     base = [sys.executable, "-m", "experiments.iclr.make_configs", "--generator-ckpt", "/missing/ode.pt",
-            "--budget-seconds", "20", "--output", str(root)]
+            "--output", str(root)]
     subprocess.run(base + ["--dry-run"], check=True, capture_output=True)
     assert not root.exists()
     subprocess.run(base, check=True, capture_output=True)
@@ -196,7 +305,25 @@ def test_no_weight_dryrun_command_chain(tmp_path):
          "--prompts", "/missing/prompts.txt", "--manifest", "/missing/manifest.jsonl",
          "--full-info", "/missing/info.json", "--output", str(tmp_path/"eval"), "--dry-run"],
     ):
-        subprocess.run([sys.executable,"-m",f"experiments.iclr.{command[0]}",*command[1:]],
-                       check=True, capture_output=True, text=True)
+        result = subprocess.run([sys.executable,"-m",f"experiments.iclr.{command[0]}",*command[1:]],
+                                check=True, capture_output=True, text=True)
+        if command[0] == "launch":
+            lines = result.stdout.splitlines()
+            assert len(lines) == 5 and "DRY RUN: 4 runs" in lines[-1]
+            assert all(f"{name}.yaml" in line for name, line in zip(
+                ("frame_roff_s0", "chunk_roff_s0", "frame_roff_s1", "chunk_roff_s1"), lines))
+        elif command[0] == "cd":
+            lines = result.stdout.splitlines()
+            assert len(lines) == 3
+            assert "--intervention curved --seed 0" in lines[0]
+            assert "--intervention rectified --seed 0" in lines[1]
+            assert "300 updates per arm" in lines[2] and "NO resume" in lines[2]
     assert not (tmp_path/"run").exists()
     assert not (tmp_path/"eval").exists()
+    manifest_path = root / "matrix.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["runs"][0]["name"] = "frame_ron_s0"
+    manifest_path.write_text(json.dumps(manifest))
+    rejected = subprocess.run([sys.executable, "-m", "experiments.iclr.launch", "--matrix",
+                               str(manifest_path), "--dry-run"], capture_output=True, text=True)
+    assert rejected.returncode != 0 and "run names" in rejected.stderr

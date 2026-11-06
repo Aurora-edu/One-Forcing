@@ -1,0 +1,14 @@
+model,paper_total_percent,paper_reported_nfe,score_origin,prompt_conditioning,samples_per_prompt,weight_source,first_block_steps,later_block_steps,checkpoint_or_source,evidence,notes
+MAGI-1,79.18,64,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+Wan2.1,84.26,50,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+SkyReels-V2,82.67,30,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+NOVA,80.12,25,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+LTX-Video,80.00,20,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+Pyramid Flow,81.72,20,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+CausVid,81.18,4,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Paper value only; reevaluation provenance pending
+Self Forcing 4-step,83.46,4,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Verify whether a historical paired run is the source of this exact row
+Self Forcing 1-step,77.18,1,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Do not substitute a four-step checkpoint sampled with all1
+Causal-Forcing 1-step,78.39,1,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Native inference adapter and true one-step weights required
+ASD 1-step,79.12,1,unknown,unknown,unknown,unknown,unknown,unknown,unknown,PDF Table 2,Verify actual first-block schedule rather than assuming FFE
+One-Forcing chunkwise,81.60,1,reported_own_result,Qwen_declared_in_paper,unknown,unknown,unknown,unknown,unknown,PDF Table 2 and Appendix A,Verify this row's actual export protocol and training configuration
+One-Forcing framewise,83.76,1,reported_own_result,Qwen_declared_in_paper,unknown,generator_ema,4,1,unknown,PDF Table 2 and Appendix A; user confirmed EMA and main implementation,main@c9a2350 fixed one-frame blocks; historical rewrite and noise stream not archived; not a new measurement

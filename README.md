@@ -46,7 +46,7 @@ bash scripts/infer.sh \
 
 ## Training
 
-ICLR 2027 controlled reviewer experiments (matched-time frame/chunk training,
+ICLR 2027 controlled reviewer experiments (fixed-200-step frame/chunk training,
 CD all1/all4 evaluation, teacher trajectories, and 8-GPU handoff):
 [experiments/iclr/README.md](experiments/iclr/README.md).
 

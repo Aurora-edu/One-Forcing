@@ -7,7 +7,7 @@ import subprocess
 
 from omegaconf import OmegaConf
 
-from experiments.iclr.protocol import atomic_json, validate_config
+from experiments.iclr.protocol import atomic_json, effective_gradient_frames, validate_config
 from utils.config import load_config
 
 
@@ -26,10 +26,12 @@ def main():
     if args.dry_run:
         print(json.dumps({"config": args.config, "mode": config.iclr_mode,
             "expected_world_size": config.iclr_expected_world_size,
-            "gradient_frames": config.gradient_num_frames,
+            "gradient_blocks": config.gradient_num_blocks,
+            "effective_gradient_frames": effective_gradient_frames(config),
             "method": "framewise" if config.num_frame_per_block == 1 else "chunkwise",
-            "budget_seconds": config.iclr_budget_seconds, "resume": args.resume,
-            "weight_source": "generator", "gpu_execution": False}, indent=2))
+            "max_steps": config.max_steps, "stop_condition": config.iclr_stop_condition,
+            "save_steps": list(config.iclr_save_steps), "resume": args.resume,
+            "weight_source": config.iclr_eval_weight_source, "gpu_execution": False}, indent=2))
         return
     if not os.environ.get("TMUX"):
         raise RuntimeError("all ICLR training must run in tmux; use experiments.iclr.launch")

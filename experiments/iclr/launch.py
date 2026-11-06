@@ -53,7 +53,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--matrix", required=True)
     parser.add_argument("--output", default="/data/fengjiaqi/iclr/runs")
-    parser.add_argument("--run", default="all", help="one matrix run name, or all (12 sequential runs)")
+    parser.add_argument("--run", default="all", help="one matrix run name, or all (4 sequential frame/chunk runs; CD is separate)")
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
     parser.add_argument("--python", default=sys.executable)
     parser.add_argument("--session", default="iclr_matrix")
@@ -70,10 +70,12 @@ def main():
     validate_matrix(configs)
     if manifest.get("configs") != [dict_config(c) for c in configs]:
         raise ValueError("matrix manifest and YAML configs disagree; regenerate the matrix")
+    if any(r["name"] != c.experiment_id for r, c in zip(manifest["runs"], configs)):
+        raise ValueError("matrix run names and YAML experiment IDs disagree; regenerate the matrix")
     selected = [(r, c) for r, c in zip(manifest["runs"], configs)
                 if args.run == "all" or r["name"] == args.run]
     if not selected or (args.resume and args.run == "all"):
-        raise ValueError("select one known run for resume, or all for the 12-run matrix")
+        raise ValueError("select one known run for resume, or all for the 4-run matrix")
     commands = [train_command(matrix_path.parent / r["config"], Path(args.output) / r["name"],
                               args.python, args.resume) for r, _ in selected]
     if not args.execute and not args.worker:

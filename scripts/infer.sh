@@ -11,7 +11,7 @@ Usage:
 
 Options:
   --method framewise|chunkwise          Inference method. Default: framewise.
-  --schedule all1|ffe|all4              Denoising schedule. Default: ffe.
+  --schedule all1|ffe|all4|main_ffe     Default: ffe (review first4then1); main_ffe preserves fixed blocks.
   --config_path PATH                    Config path. Defaults to config.yaml or chunkwise_config.yaml.
   --checkpoint_path PATH                Trained checkpoint, usually checkpoint_model_xxxxxx/model.pt.
   --prompt_path PATH                    Prompt txt file. Default: prompts/demos.txt.
@@ -167,10 +167,10 @@ case "${METHOD}" in
 esac
 
 case "${SCHEDULE}" in
-  all1|ffe|all4)
+  all1|ffe|all4|main_ffe)
     ;;
   *)
-    echo "--schedule must be all1, ffe, or all4; got: ${SCHEDULE}" >&2
+    echo "--schedule must be all1, ffe, all4, or main_ffe; got: ${SCHEDULE}" >&2
     exit 1
     ;;
 esac
@@ -271,8 +271,9 @@ cfg.num_frame_per_block = 1 if method == "framewise" else 3
 cfg.warp_denoising_step = True
 if "model_kwargs" not in cfg:
     cfg.model_kwargs = {}
-cfg.model_kwargs.local_attn_size = 21
-cfg.model_kwargs.sink_size = 0
+if schedule != "main_ffe":
+    cfg.model_kwargs.local_attn_size = 21
+    cfg.model_kwargs.sink_size = 0
 
 if "first_frame_denoising_step_list" in cfg:
     del cfg["first_frame_denoising_step_list"]
@@ -284,6 +285,11 @@ elif schedule == "ffe":
     cfg.num_frame_per_block = 1
     cfg.rollout_schedule = "first4then1"
     cfg.first_rollout_num_frames = 4
+    cfg.denoising_step_list = [1000]
+    cfg.first_frame_denoising_step_list = [1000, 750, 500, 250]
+elif schedule == "main_ffe":
+    # Match main@c9a2350 scripts/infer.sh: fixed 1/3-frame blocks, only the
+    # first BLOCK receives four denoising steps. Do not force 4 initial frames.
     cfg.denoising_step_list = [1000]
     cfg.first_frame_denoising_step_list = [1000, 750, 500, 250]
 elif schedule == "all4":

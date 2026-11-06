@@ -8,8 +8,23 @@ from omegaconf import OmegaConf
 
 
 REPO = Path(__file__).resolve().parents[2]
+# Execution order: complete the frame/chunk pair for each training seed.
+RUN_SPECS = (
+    ("frame_roff_s0", 1, 0),
+    ("chunk_roff_s0", 3, 0),
+    ("frame_roff_s1", 1, 1),
+    ("chunk_roff_s1", 3, 1),
+)
 ARM_FIELDS = {"experiment_id", "num_frame_per_block", "r1_weight", "r2_weight", "seed"}
 RUNTIME_FIELDS = {"logdir", "resume_ckpt", "config_name", "wandb_save_dir"}
+MAIN_REFERENCE = REPO / "experiments/iclr/configs/main_reference.yaml"
+REFERENCE_RUNTIME_FIELDS = {"trainer", "seed", "num_frame_per_block", "generator_ckpt",
+                           "teacher_model_path", "data_path", "resume_ckpt", "prompt_embedding_cache_path", "max_steps"}
+
+
+def effective_gradient_frames(config):
+    """The unchanged main policy counts blocks, then clips to the video length."""
+    return min(int(config.num_training_frames), int(config.gradient_num_blocks) * int(config.num_frame_per_block))
 
 
 def sha256_file(path):
@@ -44,12 +59,11 @@ def validate_config(config):
     c = config_dict(config)
     required = {
         "trainer": "iclr", "randomize_seed": False,
-        "gradient_num_blocks": 0, "gradient_num_frames": 21,
-        "num_training_frames": 21, "score_num_frames": 21,
-        "independent_first_frame": False, "i2v": False,
-        "rollout_schedule": "fixed", "denoising_step_list": [1000],
-        "separate_gan_discriminator_optimizer": False,
-        "ema_weight": 0.0, "resume_ema_from_ckpt": False,
+        "iclr_profile": "main_block_ablation_200_v2", "iclr_stop_condition": "fixed_steps",
+        "iclr_reference_commit": "c9a2350e8740531562011fc9618e1a928d911ae0",
+        "iclr_reference_step": 200, "iclr_eval_schedule": "main_ffe",
+        "iclr_eval_weight_source": "generator_ema", "iclr_eval_conditioning": "pinned_qwen",
+        "iclr_eval_samples_per_prompt": 5,
         "dataloader_num_workers": 0, "dataset_type": "clean_latent_lmdb",
         "no_save": False, "no_visualize": True,
         "rank0_preload_generator_ckpt": True,
@@ -58,6 +72,15 @@ def validate_config(config):
     for key, value in required.items():
         if c.get(key) != value:
             raise ValueError(f"ICLR requires {key}={value!r}, got {c.get(key)!r}")
+    reference = config_dict(OmegaConf.load(MAIN_REFERENCE))
+    for key, value in reference.items():
+        if key not in REFERENCE_RUNTIME_FIELDS and c.get(key) != value:
+            raise ValueError(f"main reference setting changed: {key}; expected {value!r}, got {c.get(key)!r}")
+    for key, default in {"manual_generator_backward": False, "generator_optimizer_state_cpu_offload": False,
+                         "separate_gan_discriminator_optimizer": False, "gradient_num_frames": 0,
+                         "rollout_schedule": "fixed", "gradient_window_position": "tail"}.items():
+        if c.get(key, default) != default:
+            raise ValueError(f"main implementation default changed: {key}")
     if "first_frame_denoising_step_list" in c:
         raise ValueError("matched all1 training must not define a first-frame override")
     if c["num_frame_per_block"] not in (1, 3):
@@ -68,37 +91,36 @@ def validate_config(config):
         raise ValueError("batch size mismatch")
     if not c.get("generator_ckpt") or c.get("generator_ckpt_after_resume"):
         raise ValueError("one explicit shared raw initialization is required")
-    if c["seed"] not in (0, 1, 2):
-        raise ValueError("training seeds must be 0,1,2")
-    if c["r1_weight"] < 0 or c["r2_weight"] < 0:
-        raise ValueError("negative regularization weight")
-    if (c["r1_weight"] == 0) != (c["r2_weight"] == 0):
-        raise ValueError("R1 and R2 must both be off or both be on")
+    if (c.get("experiment_id"), c["num_frame_per_block"], c["seed"]) not in RUN_SPECS:
+        raise ValueError("allowed runs: " + ", ".join(name for name, _, _ in RUN_SPECS))
+    if c["r1_weight"] != 0 or c["r2_weight"] != 0:
+        raise ValueError("R1 and R2 must both be off for all four runs")
     if c.get("iclr_mode") not in ("formal", "smoke"):
         raise ValueError("explicit formal/smoke mode required")
-    if c["iclr_mode"] == "formal" and c["max_steps"] != 0:
-        raise ValueError("formal runs stop by matched time, not a step cap")
-    if c["iclr_mode"] == "smoke" and c["max_steps"] < 10:
-        raise ValueError("smoke must cover at least 10 iterations")
+    if c["iclr_mode"] == "formal" and c["max_steps"] != reference["max_steps"]:
+        raise ValueError("formal frame/chunk runs must stop at exactly 200 iterations")
+    if c["iclr_mode"] == "smoke" and c["max_steps"] != 10:
+        raise ValueError("smoke must cover exactly 10 iterations")
+    if "iclr_budget_seconds" in c or "iclr_save_fractions" in c:
+        raise ValueError("time-budget configs are obsolete; regenerate the fixed-200 matrix")
+    expected_saves = [0, 5, 10] if c["iclr_mode"] == "smoke" else [0, 50, 100, 150, 200]
+    if c.get("iclr_save_steps") != expected_saves:
+        raise ValueError(f"fixed-step checkpoints must be {expected_saves}")
     from experiments.iclr.state import TrainingClock
-    TrainingClock(c["iclr_budget_seconds"], tuple(c["iclr_save_fractions"]))
+    TrainingClock(c["max_steps"], tuple(c["iclr_save_steps"]))
 
 
 def validate_matrix(configs):
-    if len(configs) != 12:
-        raise ValueError("formal matrix requires 12 runs: 2 granularities x 2 regularizers x 3 seeds")
+    if len(configs) != len(RUN_SPECS):
+        raise ValueError("matrix requires 4 runs: " + ", ".join(name for name, _, _ in RUN_SPECS)
+                         + "; regenerate legacy matrices")
     reference = None
-    seen = set()
-    on_weights = set()
-    for config in configs:
+    for config, expected in zip(configs, RUN_SPECS):
         validate_config(config)
         c = config_dict(config)
-        key = (c["num_frame_per_block"], c["r1_weight"] > 0, c["seed"])
-        if key in seen:
-            raise ValueError(f"duplicate matrix cell: {key}")
-        seen.add(key)
-        if key[1]:
-            on_weights.add((c["r1_weight"], c["r2_weight"]))
+        key = (c["experiment_id"], c["num_frame_per_block"], c["seed"])
+        if key != expected:
+            raise ValueError(f"matrix run order/cell mismatch: expected {expected}, got {key}")
         controlled = {k: v for k, v in c.items() if k not in ARM_FIELDS}
         if reference is None:
             reference = controlled
@@ -106,8 +128,6 @@ def validate_matrix(configs):
             diff = sorted(k for k in controlled.keys() | reference.keys()
                           if controlled.get(k) != reference.get(k))
             raise ValueError(f"uncontrolled matrix settings: {diff}")
-    if len(on_weights) != 1:
-        raise ValueError("all regularized cells must use identical R1/R2 weights")
 
 
 def tensor_state_sha256(state):
