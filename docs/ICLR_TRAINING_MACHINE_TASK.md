@@ -2,7 +2,7 @@
 
 请接手并执行本文件中的实验。这是执行任务，不要只返回计划。先检查环境和资产，再完成 GPU 验证、正式训练及评测。某项缺少资产时，继续推进其他独立工作。
 
-**最新范围：实验 A 跑 4 个正式训练 run，依次为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全部关闭，四组都固定 200 iterations 后结束，保存 0/50/100/150/200 步，不按时间预算延长。用户已新增 chunk seed 1，用于两组 seed 的 frame/chunk 配对比较。旧 3-run / 12-run 配置已不适用，必须在新目录重新生成；不增加正则开启或 seed 2 的训练。**
+**最新范围：实验 A 跑 4 个正式训练 run，依次为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全部关闭，四组都固定 200 iterations 后结束，保存 0/50/100/150/200 步，但 VBench 只评测第 200 步；0/50/100/150 不做全量或子集 VBench，不按时间预算延长。用户已新增 chunk seed 1，用于两组 seed 的 frame/chunk 配对比较。旧 3-run / 12-run 配置已不适用，必须在新目录重新生成；不增加正则开启或 seed 2 的训练。**
 
 **CD 权重已确认找不到，实验 B 必须重训 original/rectified，各 300 updates、training seed 0，共 2 个 run。A+B 合计 6 个正式训练 run；CD 的 all1/all4 是 4 个评测条件，不是 4 次训练。用户已指定 AR diffusion 初始化，并确认“严格轨迹对照 + 历史诊断”，详见 [CD 一步实验设计](ICLR_CD_ONE_STEP_DESIGN.md)。**
 
@@ -87,7 +87,7 @@
 
 **四个 run 都固定训练 200 iterations，随后立即结束。** 对应每组 40 次 generator 更新、200 次 critic 更新。保存 0、50、100、150、200 步，不再设置时间预算 T，也不延长到 750 步。smoke/pilot 只估算 ETA 和资源需求，耗时估算包含完整 G/D 更新周期。
 
-质量曲线按相同步数比较；初始化、checkpoint I/O、训练与其他开销分别记录，用实际时间报告成本。相同 iterations 不等于相同 wall-clock compute，不能将本实验标成严格等时长对照。
+只比较第 200 步的 VBench 终点结果；中间 checkpoint 仅用于恢复与已有训练诊断，不新增中间质量评测。初始化、checkpoint I/O、训练与其他开销分别记录，用实际时间报告成本。本轮不提供 VBench 学习曲线。相同 iterations 不等于相同 wall-clock compute，不能将本实验标成严格等时长对照。
 
 每个 seed 都保留，包括失败或发散的运行。不能更换不利 seed、挑最佳 checkpoint 或只报告成功组。执行初始化审计，确认四组 generator 一致、同 seed 的 frame/chunk critic 一致。
 
@@ -95,15 +95,15 @@
 
 - 同一套 944 个 VBench prompts 的 pinned Qwen rewrites，评分仍使用 original prompts。
 - 同一份生成 seed manifest，每 prompt 5 个样本。
-- EMA generator；第 0 步无 EMA，单独标为 raw 初始化参考。
+- 仅第 200 步的 EMA generator；第 0 步不生成 VBench 初始化参考。
 - main 的 `main_ffe`：固定 block，第一个 block 四步，后续一步。不要用 review 的 `ffe`。
 - 全部 16 个 VBench 维度。
 
-使用 `evaluate curve` 和 `summarize`，输出训练步数轴上的 4 条 run 曲线、G/critic updates、200 步终点表和实际训练耗时，以及 dynamic degree、imaging quality、subject consistency 等分项。`same_seed_comparison.csv` 分别报告 seeds 0、1 的 frame−chunk 差值；`paired_step_summary.csv` 报告这两个配对差值的均值和样本 SD。frame 和 chunk 均报告 n=2 的得分均值、样本 SD 和每次运行结果。保留固定 prompts 的视频对照和视觉检查记录。
+使用 `evaluate curve --reference-step 200` 和 `summarize --reference-step 200`（两者默认即只选 200；`curve` 为兼容旧命令保留的名称），输出 4 个 run 的第 200 步终点表、G/critic updates、实际训练耗时，以及 dynamic degree、imaging quality、subject consistency 等分项。`same_seed_comparison.csv` 分别报告 seeds 0、1 的 frame−chunk 差值；`paired_step_summary.csv` 报告这两个配对差值的均值和样本 SD。frame 和 chunk 均报告 n=2 的得分均值、样本 SD 和每次运行结果。保留固定 prompts 的视频对照和视觉检查记录。
 
 报告中明确：该方案检验了关闭正则、相同 200 iterations 下的粒度差异，并对两种粒度各做两个 seeds 的重复性检查。n=2 仍是小样本，不据此声称统计显著或普遍稳定；本轮未做正则开/关消融。
 
-完整曲线汇总自动输出 `step200_seed_summary.csv`，含两个 frame seeds 的 EMA 结果，无需重复评测。只需终点时可选择 `evaluate curve --reference-step 200` 和 `summarize --reference-step 200`。历史 rewrite/随机流未归档，因此不以“必须恰好达到 83.76”作为验收标准。未完成或发散的 seed 必须如实报告。
+终点汇总输出 `step200_seed_summary.csv`，含两个 frame seeds 的 EMA 结果，无需重复评测。使用独立 `eval_step200` / `summary_step200` 目录，禁止混入旧中间评测点；本轮不交付质量曲线或声称完成 matched-wall-clock 学习曲线。A 共 4×944×5=18,880 条 VBench 视频，中间点为零。历史 rewrite/随机流未归档，因此不以“必须恰好达到 83.76”作为验收标准。未完成或发散的 seed 必须如实报告。
 
 ## 四、正式实验 B：端点监督 CD 与严格配对诊断
 
@@ -160,7 +160,7 @@ P0-A 现已恢复 main 的训练设置；两个 frame seeds 的第 200 步 EMA �
 
 1. 运行目录、tmux/log/checkpoint 路径、配置、环境与初始化来源记录。
 2. GPU smoke、FSDP 恢复、评测和视频检查的真实完成状态。
-3. 四个 run 在 0/50/100/150/200 步的质量曲线、各自实际耗时、seeds 0/1 的 frame/chunk 配对差值及其均值/样本 SD，以及第 200 步 EMA 表。
+3. 四个 run 仅第 200 步的 VBench EMA 表、各自实际耗时、seeds 0/1 的 frame/chunk 配对差值及其均值/样本 SD；保存中间 checkpoint 与训练日志，不要求中间 VBench 或质量曲线。
 4. 两个 CD step-300 raw checkpoints、全部七个保存点、配对训练审计、all1/all4 结果表、历史诊断 CSV/learning curves 与实际视频检查记录。
 5. 时间参数化与几何复核结果。
 6. 固定 prompt 视频对照及视觉检查记录。

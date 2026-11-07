@@ -62,7 +62,7 @@ R1/R2 全部关闭。分别在 seeds 0、1 内比较 frame/chunk，保留两组�
 
 旧的 all-21 梯度窗口、EMA 关闭的训练不能复用为本次 main 对照；新目录必须重新生成配置。代码校验 `main_block_ablation_200_v2` profile 和参考超参数，避免混用旧产物。
 
-训练 all1；主评测使用 EMA、`main_ffe`、pinned Qwen、944×5 samples。`main_ffe` 保持固定块，只给第一块四步，后续一步；不要用 review 的 first4then1 `ffe`。第 0 步尚无 EMA，单独标记为 raw 初始化参考；所有后续主评测点必须包含 EMA。改变 block 粒度可能使 step-0 输出不同，因此保留此参考点。
+训练 all1；主评测只在第 200 步使用 EMA、`main_ffe`、pinned Qwen、944×5 samples。`main_ffe` 保持固定块，只给第一块四步，后续一步；不要用 review 的 first4then1 `ffe`。保留 0/50/100/150/200 的训练 checkpoint，但 0/50/100/150 不做任何 VBench（包括子集），也不生成 step-0 VBench 参考。
 
 先生成 smoke 配置（生成器输出表中 4 个组合，先分别验证 seed 0 的两种粒度）：
 
@@ -107,7 +107,7 @@ cat "$ICLR_ROOT/smoke/frame_roff_s0/training.done"
 # 核对后同一命令将 --dry-run 改为 --execute。
 ```
 
-正式训练在第 200 步结束，保存 **0、50、100、150、200** 步，不因实际耗时较短而延长。计时包含取 batch、前后向、参数更新、EMA 和必要同步，取各 rank 最大耗时；初始化、checkpoint I/O、日志/GC 分列。曲线按相同步数比较，实际训练耗时作为成本单独报告；不称为严格的 matched-wall-clock 对照。全程不在线运行 VBench，每个新运行仍应观察头 10 步。
+正式训练在第 200 步结束，保存 **0、50、100、150、200** 步，不因实际耗时较短而延长。计时包含取 batch、前后向、参数更新、EMA 和必要同步，取各 rank 最大耗时；初始化、checkpoint I/O、日志/GC 分列。仅比较第 200 步的 VBench 终点，实际训练耗时作为成本单独报告；不提供 VBench 学习曲线，也不称为严格的 matched-wall-clock 对照。全程不在线运行 VBench，每个新运行仍应观察头 10 步。
 
 每组输出：`resolved_config.yaml`、`source.json`、`initialization.json`、`metrics.jsonl`、`training_clock.jsonl`、`checkpoints.jsonl`、完整 checkpoint 目录和 `training.done`。非有限损失/梯度在所有 ranks 同步失败，并输出 `nonfinite_failure.json`；不要把失败 seed 从报告中删掉。
 
@@ -131,11 +131,11 @@ checkpoint 目录中的 `model.pt` 保存 raw generator、critic，以及启用�
 
 要求相同 config、GPU 类型、world size、FSDP topology 和软件环境。只更换输出路径可以恢复；改变训练预算/超参数应另开实验。checkpoint 的原子完成标记最后写入；中断留下的半写目录不会被覆盖。推荐从最近完整 checkpoint 恢复到新输出根目录。
 
-新目录的 `checkpoints.jsonl` 仅包含恢复后保存的点。最终做曲线时，还需评测原运行的有效历史点；合并评测目录时每个 seed/step 只保留一次。不能将中断期间的无 checkpoint 指标与重跑后的点重复计入。
+新目录的 `checkpoints.jsonl` 仅包含恢复后保存的点。只评测最终完成的第 200 步，不回补原运行的中间 VBench；每个 seed 只保留一个有效终点，累计训练耗时使用恢复后的记录。
 
 CPU 测试替换 CUDA/FSDP collectives，用真实训练循环验证优化器/EMA/RNG/数据续接。训练机需验证真实 FSDP 保存、恢复和后续更新；10 步 smoke 尚无 EMA，另需覆盖第 50 步后的 EMA 恢复，可在正式运行中按计划完成。
 
-## 4. 视频检查、固定评测与训练步数曲线
+## 4. 视频检查与第 200 步终点评测
 
 先在训练机导出少量视频并实际播放。示例使用 smoke 的 step-10 checkpoint：
 
@@ -168,25 +168,25 @@ INFO=experiments/rebuttal/assets/qwen_vbench/VBench_full_info.json
 
 ```bash
 "$OF_PY" -m experiments.iclr.evaluate curve \
-  --index "$ICLR_ROOT/runs/frame_roff_s0/checkpoints.jsonl" \
+  --index "$ICLR_ROOT/runs/frame_roff_s0/checkpoints.jsonl" --reference-step 200 \
   --config "$ICLR_ROOT/configs_formal/frame_roff_s0.yaml" \
   --prompts "$ICLR_ROOT/manifests/main/vbench_prompts.txt" \
   --extended-prompts "$ICLR_ROOT/manifests/main/vbench_qwen_rewrites.txt" \
   --manifest "$ICLR_ROOT/manifests/main/vbench_qwen_5sample_seed0.jsonl" \
   --samples-per-prompt 5 --full-info "$INFO" \
-  --output "$ICLR_ROOT/eval_steps/frame_roff_s0" --vbench-python "$VB_PY" --dry-run
+  --output "$ICLR_ROOT/eval_step200/frame_roff_s0" --vbench-python "$VB_PY" --dry-run
 # 核对后改 --execute；逐一对 4 个 run 执行，不能并发抢占同一批卡。
 "$OF_PY" -m experiments.iclr.summarize \
-  --evaluations "$ICLR_ROOT/eval_steps" --output "$ICLR_ROOT/summary_steps"
+  --evaluations "$ICLR_ROOT/eval_step200" --output "$ICLR_ROOT/summary_step200" --reference-step 200
 ```
 
-评测从 index 读取真实粒度，固定 EMA/main_ffe/Qwen×5，第 0 步是明确标注的 raw 参考。汇总输出 `points.csv`、`matched_step_summary.csv`、`endpoints.csv`、`same_seed_comparison.csv`、`paired_step_summary.csv`、`step200_seed_summary.csv`、`curves.pdf/png`。图展示 4 个 run 在 0/50/100/150/200 步的质量；frame/chunk 各 n=2，报告均值、样本 SD、实际耗时范围和两组 seed 内配对差值。
+评测从 index 读取真实粒度，仅选择第 200 步，固定 EMA/main_ffe/Qwen×5。`curve` 只是保留的旧命令名，省略 `--reference-step` 也只评测 200；若没有最终 checkpoint 就报错，不回退到中间点。A 共 4×944×5=18,880 条 VBench 视频。汇总输出 `points.csv`、`same_seed_comparison.csv`、`paired_step_summary.csv`、`step200_seed_summary.csv` 和 `protocol.json`；frame/chunk 各 n=2，报告单次分数、均值、样本 SD、各 seed 实际耗时和配对差值，不输出 VBench 质量曲线。
 
-完整曲线汇总已经包含第 200 步各 seed 的 EMA 分数，不必重复生成视频或评分。若只需要终点而不做完整曲线，可给 `evaluate curve` 加 `--reference-step 200`，输出到独立 `$ICLR_ROOT/eval_step200/<run>`；然后用 `summarize --reference-step 200` 汇总。不要把这套可选终点评测与完整曲线目录混合。
+终点结果同时用于粒度比较和主模型训练 seed 重复性，不重复生成或评分。使用独立 `$ICLR_ROOT/eval_step200/<run>` 目录；汇总拒绝混入旧中间点。中间 checkpoint 继续保存用于恢复，训练 loss/梯度日志保留；不补跑中间的全量或子集 VBench。
 
 `step200_seed_summary.csv` 给出标准训练设置下的两 seed 单次分数、均值和样本 SD。原主表完整 rewrites/随机流未归档，不保证新评测恰好得到 83.76。
 
-缺少指定 run、额外 seed、正则开启、步数点覆盖或评测协议不一致会报错。若某 seed 发散，先报告失败及已有曲线，不要补选“好 seed”来通过完整表检查。两个 seeds 的样本量仍有限，不据此宣称统计显著或普遍稳定。
+缺少指定 run、第 200 步终点、额外 seed、正则开启或评测协议不一致会报错。若某 seed 发散，先报告失败及已有训练日志，不要补选“好 seed”来通过完整表检查。两个 seeds 的样本量仍有限，不据此宣称统计显著或普遍稳定。
 
 ## 5. 重训 original/rectified CD，再评测一步与四步
 
@@ -290,6 +290,6 @@ A/B/C 完成后，按[合并任务](../../docs/ICLR_REVIEWER_COVERAGE.md)执行 
 git diff --check
 ```
 
-CPU 测试覆盖：四-run 范围与执行顺序、配置混杂项、相同初始化审计、10-step 更新计数、真实循环的保存/恢复（tiny CPU models）、损失非有限失败、数据跨 epoch 续接、纯一步/四步评测命令、原始 prompts、teacher Euler 日程、非均匀积分、直线/变速直线/重复点/闭合路径、seeds 0/1 配对比较、两组配对差值的均值/样本 SD、frame/chunk 各两 seed 的固定步数汇总和图表导出。所有 synthetic fixture 均明确属于测试，不进入论文结果。
+CPU 测试覆盖：四-run 范围与执行顺序、配置混杂项、相同初始化审计、10-step 更新计数、真实循环的保存/恢复（tiny CPU models）、损失非有限失败、数据跨 epoch 续接、纯一步/四步评测命令、原始 prompts、teacher Euler 日程、非均匀积分、直线/变速直线/重复点/闭合路径、seeds 0/1 配对比较、两组配对差值的均值/样本 SD、frame/chunk 各两 seed 的第 200 步终点汇总。所有 synthetic fixture 均明确属于测试，不进入论文结果。
 
 训练机验收仍需完成：关闭正则的两种粒度各 10 步 smoke、六个正式 run 的前 10 步监控、实际 FSDP 保存/恢复、原始/rectified CD 模型加载与采样、teacher 全路径采集，以及真实 MP4 动态画面检查。

@@ -6,7 +6,7 @@
 
 | 优先级 / 工作 | nPEg | PkyQ | o6Jx | 新训练 |
 |---|---|---|---|---:|
-| P0-A：main 设置，frame/chunk 各 seeds 0、1，R1/R2 全关；固定 200 步，步数曲线 + 第 200 步 EMA 表 | 核心：相同步数/正则控制、两 seed 配对及耗时；未严格匹配 wall-clock | 粒度与实际成本 | 标准 frame 配置第 200 步的两 seed 重复性 | 4 |
+| P0-A：main 设置，frame/chunk 各 seeds 0、1，R1/R2 全关；固定 200 步，仅第 200 步 VBench EMA 表 | 相同步数/正则控制、两 seed 配对及耗时；不含学习曲线，未严格匹配 wall-clock | 粒度与实际成本 | 标准 frame 配置第 200 步的两 seed 重复性 | 4 |
 | P0-B：配对端点监督 CD 各 300 updates、21 帧，再评 all1/all4 与历史诊断 | 一步 rectification | 一步 CD 与四步证据边界 | 一步几何假说的直接检验 | 2 |
 | P0-C：时间参数化、弧长和路径几何复核 | 高噪声集中是否依赖坐标 | 收敛几何因果解释 | 收敛高噪声曲率的强结论 | 0 |
 | P1-D：Table 2 各行协议与分数来源核对 | 辅助可信度 | 明确基线是否统一重评 | 解释主表和消融的 prompt 差异 | 0 |
@@ -20,10 +20,10 @@
 
 执行细节沿用主任务和[运行手册](../experiments/iclr/README.md)，不扩大训练矩阵：
 
-1. `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，全部固定 200 iterations 后结束，保存 0/50/100/150/200 步。使用 main EMA、梯度 block 计数和 `main_ffe` 推理。实际梯度窗口随 block 大小变为 17/21 帧，要明确披露。
+1. `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，全部固定 200 iterations 后结束，保存 0/50/100/150/200 步，VBench 只测第 200 步；中间点不做全量或子集 VBench。使用 main EMA、梯度 block 计数和 `main_ffe` 推理。实际梯度窗口随 block 大小变为 17/21 帧，要明确披露。
 2. CD `curved`、`rectified`，指定 AR diffusion 初始化、seed 0、21 帧，各 300 updates。每步加入等权最高噪声端点监督，保留严格轨迹配对及 teacher forcing，并做留出历史诊断。详见 [新 CD 设计](ICLR_CD_ONE_STEP_DESIGN.md)。旧 CD 权重不再是前置条件。
 
-训练曲线包含 seeds 0、1 的 frame/chunk 配对差值，报告两组差值的均值和样本 SD；两种粒度也分别报告 n=2 的均值、样本 SD 与单次结果。不将两个 seeds 当成大样本显著性证据。报告训练时间、G/critic updates、实际保存时间、初始化与保存开销，并注明 GPU 型号和数量。8 卡训练的 GPU-hours 为 `8 × training_seconds / 3600`；端到端耗时单列，不把排队时间算进训练效率。相同步数不等于相同 wall-clock compute，本轮不声称完成严格等时长对照。
+第 200 步终点表包含 seeds 0、1 的 frame/chunk 配对差值，报告两组差值的均值和样本 SD；两种粒度也分别报告 n=2 的均值、样本 SD 与单次结果。不将两个 seeds 当成大样本显著性证据。报告训练时间、G/critic updates、实际保存时间、初始化与保存开销，并注明 GPU 型号和数量。8 卡训练的 GPU-hours 为 `8 × training_seconds / 3600`；端到端耗时单列，不把排队时间算进训练效率。相同步数不等于相同 wall-clock compute，本轮不声称完成严格等时长对照。用户已取消中间 VBench，因此不提供质量学习曲线；训练 loss/梯度曲线不能替代这一缺项。
 
 PkyQ 还问原先“frame 无正则 / chunk 有正则”的实际成本：优先从历史日志补每步耗时、总训练时间、硬件和 R1/R2 配置。缺日志或硬件不一致就标明不能直接比较；不要把 200/750 的步数比写成 wall-clock 加速，也不要为此恢复已取消的正则开启训练。
 
@@ -90,7 +90,7 @@ P0-A 已对齐 `main@c9a2350`：`gradient_num_blocks=17`、EMA=0.99（从 50 步
 
 ## 最终回答组织
 
-- 给 nPEg：优先展示 P0-A 两 seed 配对曲线、相同 200 iterations/正则控制、P0-B 的 all1 结果及 P0-C 参数化复核，并披露每种粒度只有 2 个 seeds 的样本量限制。
+- 给 nPEg：优先展示 P0-A 第 200 步两 seed 配对终点、相同 200 iterations/正则控制、P0-B 的 all1 结果及 P0-C 参数化复核。明确未补学习曲线或 matched-wall-clock 对照，并披露每种粒度只有 2 个 seeds 的样本量限制。
 - 给 PkyQ：复用 A/B，追加历史成本的可核实部分和逐行 Table 2 协议说明。
 - 给 o6Jx：复用 B、原始 prompts 的补充比较，提供标准 frame 配置第 200 步 EMA 两 seed 结果，并披露小样本及历史评测资产限制。
 

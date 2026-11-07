@@ -259,7 +259,7 @@ def test_trailing_null_dataset_clean_is_never_ode_endpoint(tmp_path):
     assert geometry(points, times)[0]["path_to_chord_ratio"] == 1
 
 
-def test_cd_cells_and_chunk_curve_use_actual_method(tmp_path):
+def test_cd_cells_and_chunk_endpoint_default_skips_intermediate_checkpoints(tmp_path):
     cells = cd_cells("missing_original.pt", "missing_rectified.pt", "config.yaml")
     assert {(c["name"], c["schedule"]) for c in cells} == {
         (f"cd_{arm}_{schedule}", schedule) for arm in ("original", "rectified") for schedule in ("all1","all4")}
@@ -270,8 +270,16 @@ def test_cd_cells_and_chunk_curve_use_actual_method(tmp_path):
            "experiment_id": "chunk_roff_s0", "max_steps": 200, "stop_condition": "fixed_steps",
            "profile": "main_block_ablation_200_v2", "available_weights": ["generator", "generator_ema"]}
     index = tmp_path / "checkpoints.jsonl"
-    index.write_text(json.dumps(row)+"\n")
-    cell = curve_cells(index, "missing.yaml")[0]
+    records = [{**row, "step": step, "milestones": [step],
+                "checkpoint": f"/missing/checkpoint_{step:06d}.pt",
+                "generator_updates": step // 5, "critic_updates": step,
+                "available_weights": ["generator"] if step == 0 else row["available_weights"]}
+               for step in (0, 50, 100, 150, 200)]
+    index.write_text("\n".join(json.dumps(r) for r in records))
+    selected = curve_cells(index, "missing.yaml")
+    assert len(selected) == 1
+    cell = selected[0]
+    assert cell["step"] == cell["reference_step"] == 200
     assert cell["method"] == "chunkwise" and cell["training_seconds"] == 12.3
     from types import SimpleNamespace
     args = SimpleNamespace(prompts="prompts.txt", manifest="m.jsonl", full_info="info.json",
@@ -280,6 +288,16 @@ def test_cd_cells_and_chunk_curve_use_actual_method(tmp_path):
     assert command[command.index("--method") + 1] == "chunkwise"
     assert "--use_ema" in command and "--require_no_ema" not in command
     assert cell["schedule"] == "main_ffe"
+    result = subprocess.run([sys.executable, "-m", "experiments.iclr.evaluate", "curve",
+        "--index", str(index), "--prompts", "missing.txt", "--manifest", "missing.jsonl",
+        "--full-info", "missing_info.json", "--output", str(tmp_path / "eval"), "--dry-run"],
+        cwd=REPO, capture_output=True, text=True, check=True)
+    assert result.stdout.count("run_vbench_condition.sh") == 1
+    assert "checkpoint_000200.pt" in result.stdout
+    assert all(f"checkpoint_{step:06d}.pt" not in result.stdout for step in (0, 50, 100, 150))
+    index.write_text("\n".join(json.dumps(r) for r in records[:-1]))
+    with pytest.raises(ValueError, match="no matching checkpoints"):
+        curve_cells(index, "missing.yaml")
 
 
 @pytest.mark.parametrize("module", ["make_configs", "train", "launch", "evaluate", "cd", "trajectory"])

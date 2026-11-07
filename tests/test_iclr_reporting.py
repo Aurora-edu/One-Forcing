@@ -61,14 +61,14 @@ def synthetic_evaluations(root):
     """All scores below are test fixtures, never paper measurements."""
     for experiment_id, block, seed in RUN_SPECS:
         method = "framewise" if block == 1 else "chunkwise"
-        for step in (0, 50, 100, 150, 200):
+        for step in (200,):
             name = f"step{step:06d}_{method}"
             directory = root / experiment_id / name
             (directory / "vbench").mkdir(parents=True)
             cell = {"name": name, "method": method, "use_ema": step > 0,
                 "mode": "formal", "schedule": "main_ffe", "seed": seed,
                 "profile": "main_block_ablation_200_v2", "conditioning": "pinned_qwen_rewrite",
-                "rewrite_sha256": "fixture_rewrites", "reference_step": None,
+                "rewrite_sha256": "fixture_rewrites", "reference_step": 200,
                 "initial_raw_reference": step == 0,
                 "manifest_sha256": "fixture_manifest", "prompt_sha256": "fixture_prompts",
                 "full_info_sha256": "fixture_info", "samples_per_prompt": 5,
@@ -84,7 +84,7 @@ def synthetic_evaluations(root):
             (directory / "vbench" / f"{name}_eval_results.json").write_text(json.dumps(scores))
 
 
-def test_step_summary_and_plot_end_to_end(tmp_path):
+def test_step200_summary_end_to_end(tmp_path):
     root = tmp_path / "synthetic"
     synthetic_evaluations(root)
     rows = collect_rows(root)
@@ -126,17 +126,19 @@ def test_step_summary_and_plot_end_to_end(tmp_path):
     extra_chunk = {**next(r for r in rows if r["method"] == "chunkwise"), "seed": 2}
     with pytest.raises(ValueError, match="seeds"):
         group_by_step(rows + [extra_chunk])
-    with pytest.raises(ValueError, match="initial and final"):
-        group_by_step([r for r in rows if r["step"] != 200])
+    with pytest.raises(ValueError, match="only the final step 200"):
+        group_by_step([{**r, "step": 150} for r in rows])
     out = tmp_path / "report"
     subprocess.run([sys.executable, "-m", "experiments.iclr.summarize", "--evaluations",
                     str(root), "--output", str(out)], cwd=REPO, check=True, capture_output=True)
-    for filename in ("points.csv", "endpoints.csv", "matched_step_summary.csv",
-                     "same_seed_comparison.csv", "paired_step_summary.csv", "step200_seed_summary.csv", "curves.pdf", "curves.png"):
+    for filename in ("points.csv", "same_seed_comparison.csv", "paired_step_summary.csv", "step200_seed_summary.csv"):
         assert (out / filename).stat().st_size > 0
-    with (out / "endpoints.csv").open() as stream:
+    assert not (out / "curves.pdf").exists() and not (out / "curves.png").exists()
+    protocol = json.loads((out / "protocol.json").read_text())
+    assert protocol["evaluation_scope"] == "final_checkpoint_only" and protocol["step"] == 200
+    with (out / "step200_seed_summary.csv").open() as stream:
         endpoints = list(csv.DictReader(stream))
-    assert all(row["sample_std"] != "" and row["num_training_seeds"] == "2" for row in endpoints)
+    assert all(row["step"] == "200" and row["sample_std"] != "" and row["num_training_seeds"] == "2" for row in endpoints)
     with (out / "same_seed_comparison.csv").open() as stream:
         paired_rows = list(csv.DictReader(stream))
     assert {row["seed"] for row in paired_rows} == {"0", "1"}
@@ -186,11 +188,16 @@ def test_step200_summary_and_legacy_protocol_rejection(tmp_path):
     frame = next(r for r in summary if r["method"] == "framewise" and r["metric"] == "total_score")
     assert frame["num_training_seeds"] == 2 and frame["mean"] == pytest.approx(.43)
     with pytest.raises(ValueError, match="explicitly selected"):
-        reference_step_summary(rows)
+        reference_step_summary([{**r, "reference_step": None} for r in rows])
     with pytest.raises(ValueError, match="seeds 0,1"):
         reference_step_summary([r for r in reference if r["experiment_id"] != "chunk_roff_s1"])
     path = next(tmp_path.rglob("iclr_cell.json"))
     cell = json.loads(path.read_text())
+    cell.update(step=150, milestones=[150])
+    path.write_text(json.dumps(cell))
+    with pytest.raises(ValueError, match="only explicitly selected step-200"):
+        collect_rows(tmp_path)
+    cell.update(step=200, milestones=[200])
     cell.update(schedule="all1", use_ema=False)
     path.write_text(json.dumps(cell))
     with pytest.raises(ValueError, match="main-aligned"):

@@ -1,8 +1,8 @@
 # ICLR 本机验证记录
 
-验证日期：2026-11-06。工作目录：`/home/jiaqi/One-Forcing`。
+最近验证日期：2026-11-07（较早检查日期见各节）。工作目录：`/home/jiaqi/One-Forcing`。
 
-最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
+最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。最新决定只在第 200 步做 VBench，中间 checkpoint 继续保存但不评测；下文完整曲线检查属于历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
 
 ## 分支与模型
 
@@ -207,3 +207,27 @@ PYTEST
 - 检查诊断逐帧配对覆盖、负 history gap 的保留、CSV/PDF/PNG 导出及无权重/无 GPU 的 CLI dry-run。所有合成数据仅用于测试，不是实验结果。
 
 新增 [CD 详细设计](ICLR_CD_ONE_STEP_DESIGN.md)，同步训练机任务、运行手册、审稿人覆盖和历史来源记录。历史 all1 −1.44 / all4 +9.95 保留，新设置不宣称保证正收益。没有启动 GPU 训练或生成真实视频；8 卡 FSDP、显存、各组前 10 步、真实视频目视检查及 VBench 仍须在训练机执行。没有修改其它 session 的进程。
+
+
+## 仅评测第 200 步 VBench（2026-11-07）
+
+用户明确选择 frame/chunk 只测第 200 步 VBench。四个 run 的训练预算和保存点不变；中间 0/50/100/150 不做全量或子集 VBench。主评测保留 EMA/main_ffe/pinned-Qwen/944×5，共 18,880 条视频。CD 最终第 300 步 all1/all4 评测和历史诊断保持原范围。
+
+在相同 Python 环境、显式隐藏 GPU 后执行：
+
+```bash
+CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python - <<'PYTEST'
+import torch
+import pytest
+torch.cuda.current_device = lambda: 0
+raise SystemExit(pytest.main(['-q', '--tb=short', '--show-capture=no',
+    'tests/test_iclr_protocol.py', 'tests/test_iclr_reporting.py',
+    'tests/test_iclr_cd_one_step.py', 'tests/test_iclr_prompt_ablation.py']))
+PYTEST
+# 63 passed in 25.05s
+```
+
+- 索引包含五个保存点时，默认 API 和 CLI 只选择 step 200、真实 block 粒度和 EMA；没有终点时失败，不回退到中间点。
+- Synthetic fixtures 验证默认终点汇总、两 seed 单次值/均值/样本 SD、两组 frame−chunk 配对差值、实际训练耗时；拒绝混入中间点、遗漏 seed 或不一致的协议。汇总不再输出 VBench 曲线。
+- CD 配对训练协议、all1/all4 表、历史诊断和 original/Qwen 配对评测的相关 CPU 检查通过。
+- `git diff --check` 通过。以上均为 CPU 检查与合成数据，不是实际 VBench 分数。未启动 GPU 训练或生成真实视频，未干扰其他 session 的进程。

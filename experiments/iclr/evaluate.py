@@ -1,4 +1,4 @@
-"""Plan/run main-aligned EMA curves and separate raw CD all1/all4 cells."""
+"""Evaluate final step-200 EMA checkpoints and separate raw CD all1/all4 cells."""
 import argparse
 import json
 from pathlib import Path
@@ -36,16 +36,16 @@ def audit_cd_checkpoints(original, rectified, config_path):
     return {"cd_pair_controls": controls, "cd_checkpoint_step": 300}
 
 
-def curve_cells(index, config, reference_step=None):
+def curve_cells(index, config, reference_step=200):
+    if reference_step != 200:
+        raise ValueError("frame/chunk VBench is restricted to the final step-200 checkpoint")
     cells = []
     for line in Path(index).read_text().splitlines():
         row = json.loads(line)
         if (row.get("profile") != "main_block_ablation_200_v2" or row["schedule"] != "all1"
                 or row.get("stop_condition") != "fixed_steps"):
             raise ValueError("matched curve requires main-aligned fixed-step checkpoints; regenerate old configurations")
-        if reference_step is not None and row["step"] != reference_step:
-            continue
-        if reference_step is None and not row["milestones"]:
+        if row["step"] != reference_step:
             continue
         initial = row["step"] == 0
         if not initial and "generator_ema" not in row["available_weights"]:
@@ -122,9 +122,10 @@ def main():
     cd = kind.add_parser("cd", help="original/rectified x all1/all4, no FFE")
     cd.add_argument("--original", required=True)
     cd.add_argument("--rectified", required=True)
-    curve = kind.add_parser("curve", help="saved-step index from one frame OR chunk run")
+    curve = kind.add_parser("curve", help="final step-200 checkpoint from one frame OR chunk run (legacy command name)")
     curve.add_argument("--index", required=True)
-    curve.add_argument("--reference-step", type=int, choices=(200,), help="evaluate only the step-200 endpoint instead of the full curve")
+    curve.add_argument("--reference-step", type=int, choices=(200,), default=200,
+                       help="final checkpoint to evaluate; only step 200 is supported (default)")
     single = kind.add_parser("single", help="one checkpoint")
     single.add_argument("--checkpoint", required=True)
     single.add_argument("--method", choices=("framewise", "chunkwise"), required=True)
@@ -155,7 +156,7 @@ def main():
     for command in commands:
         print(shlex.join(command))
     if not args.execute:
-        print("DRY RUN: curve=main_ffe/EMA/Qwen; CD=raw/all1+all4/original; no GPU/model access")
+        print("DRY RUN: frame/chunk=step200/main_ffe/EMA/Qwen; CD=raw/all1+all4/original; no GPU/model access")
         return
     if args.kind == "cd":
         provenance = audit_cd_checkpoints(args.original, args.rectified, args.config)
@@ -165,7 +166,7 @@ def main():
     require_idle(parse_gpus(args.gpus))
     if args.kind == "curve":
         if args.samples_per_prompt != 5 or not args.extended_prompts:
-            raise ValueError("main-aligned curves require pinned Qwen rewrites and 5 samples per prompt")
+            raise ValueError("main-aligned endpoints require pinned Qwen rewrites and 5 samples per prompt")
         from experiments.rebuttal.paper_vbench_protocol import audit_files, verify_full_info
         verify_full_info(Path(args.full_info))
         protocol = audit_files(Path(args.prompts), Path(args.extended_prompts), Path(args.manifest), 5)
@@ -179,7 +180,7 @@ def main():
         if not Path(cell["checkpoint"]).is_file():
             raise FileNotFoundError(cell["checkpoint"])
         root = Path(args.output) / cell["name"]
-        # Keep time and update coordinates next to score outputs for curve plotting.
+        # Keep actual training costs and update counts next to endpoint scores.
         record_cell(root / "iclr_cell.json", {**cell, **protocol, "use_ema": cell.get("use_ema", False)})
         subprocess.run(command, cwd=REPO, check=True)
 

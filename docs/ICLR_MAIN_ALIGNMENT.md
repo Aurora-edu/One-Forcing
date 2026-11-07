@@ -28,11 +28,11 @@
 
 review 分支的 `ffe` 是先联合生成 4 个 latent frames 再逐帧生成，并额外覆盖 attention 参数，不能代替 main。新增 `main_ffe` 路径保留 main 的 `model_kwargs` 默认值；旧 `ffe` 路径继续用于已有历史实验。
 
-正式评测采用固定 Qwen rewrites、944 prompts × 5 samples，同一份噪声 manifest、原始 VBench scoring prompts 和全部 16 维。
+正式 VBench 仅评测第 200 步，采用固定 Qwen rewrites、944 prompts × 5 samples，同一份噪声 manifest、原始 VBench scoring prompts 和全部 16 维。四组共 18,880 条视频。
 
-**用户最新要求：frame/chunk 各两个 seed 全部固定训练 200 iterations，到第 200 步结束。** 不再按时间预算 T 延长，也不运行 750 步。每组对应 40 次 generator 更新和 200 次 critic 更新。保存第 **0、50、100、150、200** 步，比较相同步数的质量曲线；第 0 步 EMA 尚未创建，明确标为 raw 初始化参考，其余点使用 EMA。
+**用户最新要求：frame/chunk 各两个 seed 全部固定训练 200 iterations，到第 200 步结束。** 不再按时间预算 T 延长，也不运行 750 步。每组对应 40 次 generator 更新和 200 次 critic 更新。保存第 **0、50、100、150、200** 步，但仅第 200 步 EMA 进入 VBench；0/50/100/150 不做全量或子集 VBench，不生成初始化质量参考。中间 checkpoint 用于恢复，训练日志保留。
 
-训练耗时、初始化、checkpoint I/O 和其他开销分别记录，报告每组实际训练成本。相同 iterations 不等于相同 wall-clock compute，本轮不能声称完成了严格的等时长训练对照。完整曲线汇总同时输出第 200 步 EMA 的两 seed 结果，无需重复评测。总计仍为 4 个 A + 2 个 CD = **6 个正式 run**。
+训练耗时、初始化、checkpoint I/O 和其他开销分别记录，报告每组实际训练成本。相同 iterations 不等于相同 wall-clock compute，本轮不能声称完成了严格的等时长训练对照。终点汇总输出第 200 步 EMA 的两 seed 结果，无需重复评测；本轮不提供 VBench 学习曲线。总计仍为 4 个 A + 2 个 CD = **6 个正式 run**。
 
 ## 实现与复现边界
 

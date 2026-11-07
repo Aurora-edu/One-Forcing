@@ -1,4 +1,4 @@
-"""Summarize 4 fixed-200-step runs: frame/chunk paired at training seeds 0 and 1."""
+"""Summarize only step 200: frame/chunk paired at training seeds 0 and 1."""
 import argparse
 import csv
 import json
@@ -23,27 +23,26 @@ def collect_rows(root):
     protocol = None
     for path in sorted(Path(root).rglob("iclr_cell.json")):
         cell = json.loads(path.read_text())
-        initial = cell.get("initial_raw_reference") is True and cell["step"] == 0 and cell["milestones"] == [0]
+        if cell["step"] != 200 or cell.get("reference_step") != 200 or cell["milestones"] != [200]:
+            raise ValueError("endpoint summary requires only explicitly selected step-200 checkpoints; use a separate evaluation directory")
         if (cell.get("mode") != "formal" or cell.get("schedule") != "main_ffe"
                 or cell.get("profile") != "main_block_ablation_200_v2"
                 or cell.get("stop_condition") != "fixed_steps"
                 or cell.get("max_steps") != 200
                 or cell.get("conditioning") != "pinned_qwen_rewrite"
                 or cell.get("samples_per_prompt") != 5
-                or cell.get("use_ema") is not (not initial)):
-            raise ValueError(f"matched summaries require main-aligned EMA/main_ffe/Qwen cells (raw initial reference only at step 0): {path}")
+                or cell.get("use_ema") is not True):
+            raise ValueError(f"matched summaries require main-aligned EMA/main_ffe/Qwen cells: {path}")
         if cell["r1_weight"] != 0 or cell["r2_weight"] != 0:
             raise ValueError("matched summaries require R1 and R2 both off")
         if (cell["experiment_id"], cell["method"], cell["seed"]) not in EXPECTED_CELLS:
             raise ValueError(f"unexpected run in four-run summary: {path}")
-        if cell["step"] not in (0, 50, 100, 150, 200) or cell["milestones"] != [cell["step"]]:
-            raise ValueError("formal evaluation requires saved steps 0,50,100,150,200")
         pairing = (cell["manifest_sha256"], cell["prompt_sha256"], cell["full_info_sha256"], cell["rewrite_sha256"],
                    cell["samples_per_prompt"], cell["max_steps"])
         if protocol is None:
             protocol = pairing
         if protocol != pairing:
-            raise ValueError("curves do not share prompts/noise seeds, sample count or step budget")
+            raise ValueError("endpoints do not share prompts/noise seeds, sample count or step budget")
         scores = load_vbench_results(path.parent / "vbench" / f"{cell['name']}_eval_results.json")
         totals = official_totals(scores)
         if totals is None:
@@ -57,7 +56,7 @@ def collect_rows(root):
                 "metric": metric, "score": score})
             rows[-1]["reference_step"] = cell.get("reference_step")
     if not rows:
-        raise ValueError("no completed curve evaluation cells")
+        raise ValueError("no completed step-200 evaluation cells")
     return rows
 
 
@@ -73,8 +72,8 @@ def group_by_step(rows):
             raise ValueError(f"duplicate training seed for step {key}")
         seed_rows[row["seed"]] = row
     milestones = {step for _, _, step, _ in groups}
-    if milestones != {0, 50, 100, 150, 200}:
-        raise ValueError("formal summary requires initial and final steps plus 50,100,150")
+    if milestones != {200}:
+        raise ValueError("formal summary requires only the final step 200")
     metrics = {row["metric"] for row in rows}
     expected = {(m, False, step, metric) for m in EXPECTED_SEEDS
                 for step in milestones for metric in metrics}
@@ -166,65 +165,32 @@ def write_csv(path, rows):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--evaluations", required=True, help="root of curve exports, NOT CD cells")
+    parser.add_argument("--evaluations", required=True, help="root of step-200 exports, NOT CD or intermediate cells")
     parser.add_argument("--output", default="/data/fengjiaqi/iclr/summary")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--reference-step", type=int, choices=(200,))
+    parser.add_argument("--reference-step", type=int, choices=(200,), default=200)
     args = parser.parse_args()
     if args.dry_run:
-        print("DRY RUN: points.csv, matched_step_summary.csv, endpoints.csv, same_seed_comparison.csv, paired_step_summary.csv, curves.pdf/png; frame/chunk seeds 0,1; per-method and paired-difference sample SD")
+        print("DRY RUN: step200 only; points.csv, step200_seed_summary.csv, same_seed_comparison.csv, paired_step_summary.csv; frame/chunk seeds 0,1; per-method and paired-difference sample SD; no VBench curves")
         return
     rows = collect_rows(args.evaluations)
     root = Path(args.output)
     root.mkdir(parents=True, exist_ok=True)
-    if args.reference_step:
-        summary = reference_step_summary(rows, args.reference_step)
-        write_csv(root / "step200_seed_summary.csv", summary)
-        atomic_json(root / "protocol.json", {"axis": "training iterations", "step": args.reference_step,
-            "weight_source": "generator_ema", "schedule": "main_ffe", "conditioning": "pinned_qwen_rewrite",
-            "samples_per_prompt": 5, "historical_score_reproduction_guaranteed": False})
-        return
-    if any(row["reference_step"] is not None for row in rows):
-        raise ValueError("do not mix the step-200 reference table with fixed-step curves")
-    summary = group_by_step(rows)
-    write_csv(root / "points.csv", rows)
-    write_csv(root / "matched_step_summary.csv", summary)
-    write_csv(root / "endpoints.csv", [row for row in summary if row["step"] == 200])
-    write_csv(root / "step200_seed_summary.csv", reference_step_summary(
-        [{**row, "reference_step": 200} for row in rows if row["step"] == 200]))
+    summary = reference_step_summary(rows, args.reference_step)
     comparisons = same_seed_comparison(rows)
+    write_csv(root / "points.csv", rows)
+    write_csv(root / "step200_seed_summary.csv", summary)
     write_csv(root / "same_seed_comparison.csv", comparisons)
     write_csv(root / "paired_step_summary.csv", paired_step_summary(comparisons))
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    metrics = ["total_score", "quality_score", "semantic_score", "dynamic_degree", "imaging_quality", "subject_consistency"]
-    fig, axes = plt.subplots(2, 3, figsize=(15, 8))
-    arm_keys = sorted({(row["method"], row["regularized"]) for row in rows})
-    for ax, metric in zip(axes.flat, metrics):
-        for color, (method, regularized) in enumerate(arm_keys):
-            for seed in sorted(EXPECTED_SEEDS[method]):
-                selected = sorted([row for row in rows if row["metric"] == metric
-                    and row["method"] == method and row["regularized"] == regularized and row["seed"] == seed],
-                    key=lambda row: row["step"])
-                ax.plot([row["step"] for row in selected], [row["score"] for row in selected],
-                    marker=".", color=f"C{color}", alpha=.65, linestyle=("-", "--", ":")[seed],
-                    label=f"{method}/R{'on' if regularized else 'off'}/s{seed}")
-        ax.set(title=metric, xlabel="Training iterations", ylabel="Score")
-        ax.grid(alpha=.2)
-    axes.flat[0].legend(fontsize=6)
-    fig.tight_layout()
-    fig.savefig(root / "curves.pdf")
-    fig.savefig(root / "curves.png", dpi=160)
-    plt.close(fig)
     atomic_json(root / "protocol.json", {"aggregation_unit": "training seed",
-        "summary": "identical training steps 0,50,100,150,200; actual elapsed costs reported separately",
-        "plot": "individual seed curves against training iterations",
-        "step_zero": "explicit raw initialization reference before EMA exists; all later points use EMA",
-        "primary_comparison": "framewise minus chunkwise within seeds 0 and 1 at identical training steps; summarize paired differences",
+        "evaluation_scope": "final_checkpoint_only", "step": args.reference_step,
+        "weight_source": "generator_ema", "schedule": "main_ffe", "conditioning": "pinned_qwen_rewrite",
+        "samples_per_prompt": 5, "historical_score_reproduction_guaranteed": False,
+        "summary": "identical final training step 200; actual elapsed costs reported separately",
+        "primary_comparison": "framewise minus chunkwise within seeds 0 and 1 at step 200; summarize paired differences",
         "training_seeds": {method: sorted(seeds) for method, seeds in EXPECTED_SEEDS.items()},
         "uncertainty": "n=2 training seeds per method; sample SD of scores and of paired differences, not generation samples",
-        "limitation": "two-seed repeatability check; equal iterations do not imply matched wall-clock compute; no statistical significance claim"})
+        "limitation": "endpoint-only two-seed repeatability check; no quality learning curves; equal iterations do not imply matched wall-clock compute; no statistical significance claim"})
     print(f"Wrote {root}")
 
 
