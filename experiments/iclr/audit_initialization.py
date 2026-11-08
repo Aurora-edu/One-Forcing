@@ -3,10 +3,14 @@ import argparse
 import json
 from pathlib import Path
 
-from experiments.iclr.protocol import RUN_SPECS
+from experiments.iclr.protocol import LEGACY_PROFILE, PROFILE_RUN_SPECS
 
 
-def audit(root, expected_runs=len(RUN_SPECS)):
+def audit(root, expected_runs=None, *, profile=LEGACY_PROFILE):
+    specs = PROFILE_RUN_SPECS[profile]
+    expected_runs = len(specs) if expected_runs is None else expected_runs
+    if expected_runs != len(specs):
+        raise ValueError("expected run count differs from selected experiment profile")
     paths = sorted(Path(root).glob("*/initialization.json"))
     if len(paths) != expected_runs:
         raise ValueError(f"expected {expected_runs} initialized runs, found {len(paths)}")
@@ -15,10 +19,10 @@ def audit(root, expected_runs=len(RUN_SPECS)):
         if len({row[field] for row in rows}) != 1:
             raise ValueError(f"initialization differs across runs: {field}")
     by_name = {row["experiment_id"]: row for row in rows}
-    if set(by_name) != {name for name, _, _ in RUN_SPECS}:
-        raise ValueError("initialization records must cover the four declared frame/chunk runs")
-    for seed in (0, 1):
-        pair = [by_name[f"{method}_roff_s{seed}"] for method in ("frame", "chunk")]
+    if set(by_name) != {name for name, _, _ in specs}:
+        raise ValueError("initialization records must cover the declared frame/chunk runs")
+    for seed in {s for _, _, s in specs}:
+        pair = [by_name[name] for name, _, s in specs if s == seed]
         if any(row["initialization_seed"] != seed for row in pair):
             raise ValueError("initialization seed differs from declared training seed")
         if pair[0]["critic_tensor_sha256"] != pair[1]["critic_tensor_sha256"]:
@@ -34,13 +38,15 @@ def audit(root, expected_runs=len(RUN_SPECS)):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", required=True)
-    parser.add_argument("--expected-runs", type=int, default=len(RUN_SPECS))
+    parser.add_argument("--profile", choices=tuple(PROFILE_RUN_SPECS), default=LEGACY_PROFILE)
+    parser.add_argument("--expected-runs", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.dry_run:
-        print(f"DRY RUN: compare raw generator and critic tensor hashes across {args.expected_runs} runs")
+        count = args.expected_runs if args.expected_runs is not None else len(PROFILE_RUN_SPECS[args.profile])
+        print(f"DRY RUN: compare raw generator and critic tensor hashes across {count} runs")
         return
-    print(json.dumps(audit(args.runs, args.expected_runs), indent=2))
+    print(json.dumps(audit(args.runs, args.expected_runs, profile=args.profile), indent=2))
 
 
 if __name__ == "__main__":

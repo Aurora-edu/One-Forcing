@@ -1,5 +1,7 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
+**当前 frame/chunk 追加任务：** 按 [18 帧窗口、seed 42 任务](../../docs/ICLR_WINDOW18_SEED42_TASK.md)只新增 `frame_w18_s42` / `chunk_w18_s42` 两组，R1/R2 关闭、各 200 步，仅最终 EMA/main_ffe/Qwen VBench。第三组独立 chunk/original-prompts 已取消。必须显式选择 `--profile matched_window18_s42_v1`；下方旧四组和 CD 是先前任务，不随本轮重新启动。
+
 **当前一步实验更新：** 以[高噪声状态局部渐进拉直任务](../../docs/ICLR_CD_LOCAL_ALL1_TASK.md)为准，只评测 Original/Rectified 两个 all1 条件，首帧也一步；不运行四步生成或四步评测。下文旧四条件方案保留作历史记录，不是本次执行范围。
 
 **2026-11-08 最新任务：** 已完成实验保留，只补 [原配置 CD 对照](../../docs/ICLR_CD_ORIGINAL_TASK.md)。使用 `python -m experiments.iclr.cd_original`：9 帧、纯 CD、seed=2026、各 300 步；同源轨迹可复用。第 5 节的 `cd_one_step.yaml` 是上一轮已完成的 21 帧端点监督扩展，不能用于本次原配置对照。

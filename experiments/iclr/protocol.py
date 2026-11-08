@@ -15,6 +15,10 @@ RUN_SPECS = (
     ("frame_roff_s1", 1, 1),
     ("chunk_roff_s1", 3, 1),
 )
+LEGACY_PROFILE = "main_block_ablation_200_v2"
+WINDOW_PROFILE = "matched_window18_s42_v1"
+WINDOW_RUN_SPECS = (("frame_w18_s42", 1, 42), ("chunk_w18_s42", 3, 42))
+PROFILE_RUN_SPECS = {LEGACY_PROFILE: RUN_SPECS, WINDOW_PROFILE: WINDOW_RUN_SPECS}
 ARM_FIELDS = {"experiment_id", "num_frame_per_block", "r1_weight", "r2_weight", "seed"}
 RUNTIME_FIELDS = {"logdir", "resume_ckpt", "config_name", "wandb_save_dir"}
 MAIN_REFERENCE = REPO / "experiments/iclr/configs/main_reference.yaml"
@@ -23,8 +27,16 @@ REFERENCE_RUNTIME_FIELDS = {"trainer", "seed", "num_frame_per_block", "generator
 
 
 def effective_gradient_frames(config):
-    """The unchanged main policy counts blocks, then clips to the video length."""
-    return min(int(config.num_training_frames), int(config.gradient_num_blocks) * int(config.num_frame_per_block))
+    """Mirror the model's block precedence, alignment and length clipping."""
+    total = int(config.num_training_frames)
+    block = int(config.num_frame_per_block)
+    blocks = int(config.get("gradient_num_blocks", 0) or 0)
+    frames = blocks * block if blocks > 0 else int(config.get("gradient_num_frames", 0) or 0)
+    if frames <= 0:
+        return total
+    if not config.get("independent_first_frame", False):
+        frames = ((frames + block - 1) // block) * block
+    return max(1, min(total, frames))
 
 
 def sha256_file(path):
@@ -57,9 +69,13 @@ def resume_signature(config):
 
 def validate_config(config):
     c = config_dict(config)
+    profile = c.get("iclr_profile")
+    if profile not in PROFILE_RUN_SPECS:
+        raise ValueError(f"unknown ICLR profile: {profile!r}")
+    matched_window = profile == WINDOW_PROFILE
     required = {
         "trainer": "iclr", "randomize_seed": False,
-        "iclr_profile": "main_block_ablation_200_v2", "iclr_stop_condition": "fixed_steps",
+        "iclr_profile": profile, "iclr_stop_condition": "fixed_steps",
         "iclr_reference_commit": "c9a2350e8740531562011fc9618e1a928d911ae0",
         "iclr_reference_step": 200, "iclr_eval_schedule": "main_ffe",
         "iclr_eval_weight_source": "generator_ema", "iclr_eval_conditioning": "pinned_qwen",
@@ -73,14 +89,19 @@ def validate_config(config):
         if c.get(key) != value:
             raise ValueError(f"ICLR requires {key}={value!r}, got {c.get(key)!r}")
     reference = config_dict(OmegaConf.load(MAIN_REFERENCE))
+    permitted = REFERENCE_RUNTIME_FIELDS | ({"gradient_num_blocks"} if matched_window else set())
     for key, value in reference.items():
-        if key not in REFERENCE_RUNTIME_FIELDS and c.get(key) != value:
+        if key not in permitted and c.get(key) != value:
             raise ValueError(f"main reference setting changed: {key}; expected {value!r}, got {c.get(key)!r}")
     for key, default in {"manual_generator_backward": False, "generator_optimizer_state_cpu_offload": False,
-                         "separate_gan_discriminator_optimizer": False, "gradient_num_frames": 0,
+                         "separate_gan_discriminator_optimizer": False,
+                         "gradient_num_frames": 18 if matched_window else 0,
                          "rollout_schedule": "fixed", "gradient_window_position": "tail"}.items():
         if c.get(key, default) != default:
             raise ValueError(f"main implementation default changed: {key}")
+    if matched_window and (c.get("gradient_num_blocks") != 0 or c.get("gradient_num_frames") != 18
+                           or effective_gradient_frames(config) != 18):
+        raise ValueError("matched window requires gradient_num_blocks=0 and gradient_num_frames=18")
     if "first_frame_denoising_step_list" in c:
         raise ValueError("matched all1 training must not define a first-frame override")
     if c["num_frame_per_block"] not in (1, 3):
@@ -91,10 +112,11 @@ def validate_config(config):
         raise ValueError("batch size mismatch")
     if not c.get("generator_ckpt") or c.get("generator_ckpt_after_resume"):
         raise ValueError("one explicit shared raw initialization is required")
-    if (c.get("experiment_id"), c["num_frame_per_block"], c["seed"]) not in RUN_SPECS:
-        raise ValueError("allowed runs: " + ", ".join(name for name, _, _ in RUN_SPECS))
+    specs = PROFILE_RUN_SPECS[profile]
+    if (c.get("experiment_id"), c["num_frame_per_block"], c["seed"]) not in specs:
+        raise ValueError("allowed runs: " + ", ".join(name for name, _, _ in specs))
     if c["r1_weight"] != 0 or c["r2_weight"] != 0:
-        raise ValueError("R1 and R2 must both be off for all four runs")
+        raise ValueError("R1 and R2 must both be off for all runs")
     if c.get("iclr_mode") not in ("formal", "smoke"):
         raise ValueError("explicit formal/smoke mode required")
     if c["iclr_mode"] == "formal" and c["max_steps"] != reference["max_steps"]:
@@ -111,12 +133,18 @@ def validate_config(config):
 
 
 def validate_matrix(configs):
-    if len(configs) != len(RUN_SPECS):
-        raise ValueError("matrix requires 4 runs: " + ", ".join(name for name, _, _ in RUN_SPECS)
+    profile = configs[0].get("iclr_profile") if configs else LEGACY_PROFILE
+    if profile not in PROFILE_RUN_SPECS:
+        raise ValueError(f"unknown ICLR profile: {profile!r}")
+    specs = PROFILE_RUN_SPECS[profile]
+    if len(configs) != len(specs):
+        raise ValueError(f"matrix requires {len(specs)} runs: " + ", ".join(name for name, _, _ in specs)
                          + "; regenerate legacy matrices")
     reference = None
-    for config, expected in zip(configs, RUN_SPECS):
+    for config, expected in zip(configs, specs):
         validate_config(config)
+        if config.iclr_profile != profile:
+            raise ValueError("mixed experiment profiles in matrix")
         c = config_dict(config)
         key = (c["experiment_id"], c["num_frame_per_block"], c["seed"])
         if key != expected:

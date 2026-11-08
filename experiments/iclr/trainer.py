@@ -250,6 +250,7 @@ class ICLRTrainer(Trainer):
                     "profile": self.config.iclr_profile,
                     "stop_condition": self.config.iclr_stop_condition,
                     "gradient_num_blocks": self.config.gradient_num_blocks,
+                    "gradient_num_frames": int(self.config.get("gradient_num_frames", 0)),
                     "effective_gradient_frames": effective_gradient_frames(self.config),
                     "method": "framewise" if self.config.num_frame_per_block == 1 else "chunkwise",
                     "schedule": "all1", "weight_source": "generator", "reason": reason,

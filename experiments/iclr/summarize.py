@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import statistics
 
-from experiments.iclr.protocol import RUN_SPECS, atomic_json
+from experiments.iclr.protocol import RUN_SPECS, LEGACY_PROFILE, WINDOW_PROFILE, PROFILE_RUN_SPECS, atomic_json
 from experiments.rebuttal.consolidate_results import load_vbench_results, official_totals
 
 EXPECTED_CELLS = {
@@ -18,7 +18,9 @@ EXPECTED_SEEDS = {
 }
 
 
-def collect_rows(root):
+def collect_rows(root, *, profile=LEGACY_PROFILE):
+    expected_cells = {(name, "framewise" if block == 1 else "chunkwise", seed)
+                      for name, block, seed in PROFILE_RUN_SPECS[profile]}
     rows = []
     protocol = None
     for path in sorted(Path(root).rglob("iclr_cell.json")):
@@ -26,7 +28,7 @@ def collect_rows(root):
         if cell["step"] != 200 or cell.get("reference_step") != 200 or cell["milestones"] != [200]:
             raise ValueError("endpoint summary requires only explicitly selected step-200 checkpoints; use a separate evaluation directory")
         if (cell.get("mode") != "formal" or cell.get("schedule") != "main_ffe"
-                or cell.get("profile") != "main_block_ablation_200_v2"
+                or cell.get("profile") != profile
                 or cell.get("stop_condition") != "fixed_steps"
                 or cell.get("max_steps") != 200
                 or cell.get("conditioning") != "pinned_qwen_rewrite"
@@ -35,8 +37,12 @@ def collect_rows(root):
             raise ValueError(f"matched summaries require main-aligned EMA/main_ffe/Qwen cells: {path}")
         if cell["r1_weight"] != 0 or cell["r2_weight"] != 0:
             raise ValueError("matched summaries require R1 and R2 both off")
-        if (cell["experiment_id"], cell["method"], cell["seed"]) not in EXPECTED_CELLS:
-            raise ValueError(f"unexpected run in four-run summary: {path}")
+        if (cell["experiment_id"], cell["method"], cell["seed"]) not in expected_cells:
+            raise ValueError(f"unexpected run in selected profile summary: {path}")
+        if profile == WINDOW_PROFILE and (cell.get("gradient_num_blocks") != 0
+                or cell.get("gradient_num_frames") != 18 or cell.get("effective_gradient_frames") != 18
+                or cell.get("generator_updates") != 40 or cell.get("critic_updates") != 200):
+            raise ValueError("window-18 summary requires matching actual gradient frames and update counts")
         pairing = (cell["manifest_sha256"], cell["prompt_sha256"], cell["full_info_sha256"], cell["rewrite_sha256"],
                    cell["samples_per_prompt"], cell["max_steps"])
         if protocol is None:

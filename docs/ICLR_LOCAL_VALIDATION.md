@@ -2,6 +2,8 @@
 
 最近验证日期：2026-11-08（较早检查日期见各节）。工作目录：`/home/jiaqi/One-Forcing`。
 
+**当前追加范围：** 只准备 [18 帧窗口、seed 42 两组 frame/chunk 对照](ICLR_WINDOW18_SEED42_TASK.md)，第三组已取消。171 项 CPU 回归通过，详见本文件末节；下文旧四组/CD 范围均是此前任务记录。
+
 最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。最新决定只在第 200 步做 VBench，中间 checkpoint 继续保存但不评测；下文完整曲线检查属于历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
 
 ## 分支与模型
@@ -268,3 +270,23 @@ CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python -m
 ```
 
 4 项 CPU 检查通过：官方总分贡献分解精确相加、视觉计划的配置/权重组合和 attention 不变、实际 checkpoint 步数与导出 method 错位检测、缺原始产物时返回 incomplete。原轻量结果包缺训练机权重/配置/原始评分 JSON；在该包上执行新命令正确报告 incomplete，实际读取的权重文件数为零，不将缺少证据当作发现运行错误。本次没有改动训练或正式评测配置，没有启动 GPU 作业或干扰其他 session。只读 metadata 与 sampled tensor 检查不能证明完整权重一致或动态视频正常，后续真实检查按 `ICLR_FRAME_CHUNK_AUDIT.md` 在训练机完成。
+
+## 18 帧窗口、seed 42 的两组追加对照（2026-11-08）
+
+用户确认 frame/chunk 两边统一 18 latent 帧完整反传窗口、seed=42、R1/R2 关闭，仅第 200 步 EMA/main_ffe/pinned-Qwen 944×5 评测。第三组独立 chunk/original-prompts 因旧公开权重 training seed 无法核实，已由用户取消。新增 profile `matched_window18_s42_v1` 与独立汇总入口，旧四组配置及 CD 设置保留。
+
+```bash
+CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python - <<'PYTEST'
+import torch, pytest
+torch.cuda.current_device = lambda: 0
+raise SystemExit(pytest.main(['-q', '--tb=short', '--show-capture=no']))
+PYTEST
+# 171 passed in 42.21s
+```
+
+- 新增 17 项测试覆盖配置隔离、真实 temporal rollout / loss mask、checkpoint 配置核验、初始化 tensor hashes、最终 EMA 选择和单 seed 配对汇总。真实训练 pipeline 以 tiny generator 替换 Wan、空 cache 替换大 cache；frame/chunk 每帧独立参数的实际梯度都精确为前三帧 0、后十八帧 1，chunk 对应 6 个完整 block。
+- CPU CLI 配置生成和 launcher/train dry-run 均通过，只生成 2 个正式 run、各 200 iterations、actual gradient frames 18；没有 GPU 查询、权重加载或训练进程。
+- pinned Qwen 输入核验通过：944 prompts、每个终点 4720 条 manifest；不会额外跑 original prompts。合成评分只用于验证配对计算、拒绝 raw 冒充 EMA / 不同 manifest / 缺失方法 / 重复终点；不输出 seed SD。
+- CPU 命令产物：`/data/fengjiaqi/One-Forcing/iclr_window18_s42_cpu_18vtjasa/report.json`，包含配置计划和输入 hashes。这是验证产物，不是新实验分数。
+
+没有运行真实 Wan/GPU 训练或生成新视频，也未检查本轮动态视频；这些由训练机按 `ICLR_WINDOW18_SEED42_TASK.md` 执行，每组盯到第 10 步。未停止或修改其他 session 的进程。
