@@ -257,3 +257,14 @@ PYTEST
 - 纳入训练机的同一处 B200 多 rank intent 写入竞态修复（255c65e 的 barrier），不更改训练损失或优化器。
 
 本次未启动真实 Wan/GPU 训练或生成新视频；两个真实 10 步 smoke、正式训练、四条件评测和实际视频动态检查由训练机按新任务执行。已完成实验保留，不因原配方追加任务重跑；源初始化/轨迹的历史身份尚未确认时，不能保证恢复论文精确分数。
+
+
+## 现有 frame/chunk 结果核查工具（2026-11-08）
+
+新增 `experiments.iclr.audit_frame_chunk`，读取训练机现有的四个 step-200 run：核对配置、初始化、实际 checkpoint metadata 与少量 raw/EMA tensor samples、实际导出 shard 记录、推理设置、manifest 和原始评分 JSON，并核对汇总标签。它不启动训练或评分，可准备 64 个终点 raw/EMA × all1/main_ffe 视觉诊断样例的导出计划；各模式 attention/sink 设置保持相同。脚本不会自动执行 GPU 导出。
+
+```bash
+CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python -m pytest -q tests/test_iclr_frame_chunk_audit.py --tb=short --show-capture=no
+```
+
+4 项 CPU 检查通过：官方总分贡献分解精确相加、视觉计划的配置/权重组合和 attention 不变、实际 checkpoint 步数与导出 method 错位检测、缺原始产物时返回 incomplete。原轻量结果包缺训练机权重/配置/原始评分 JSON；在该包上执行新命令正确报告 incomplete，实际读取的权重文件数为零，不将缺少证据当作发现运行错误。本次没有改动训练或正式评测配置，没有启动 GPU 作业或干扰其他 session。只读 metadata 与 sampled tensor 检查不能证明完整权重一致或动态视频正常，后续真实检查按 `ICLR_FRAME_CHUNK_AUDIT.md` 在训练机完成。
