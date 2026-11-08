@@ -61,7 +61,15 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     write_csv(output / "cd_scores.csv", records)
     write_csv(output / "cd_gains.csv", deltas)
+    comparison = {}
+    if {row["cd_profile"] for row in records} == {"original_adjacent_cd_9f_v1"}:
+        from experiments.iclr.cd_original_protocol import historical_comparison, REFERENCE_SHA256
+        write_csv(output / "historical_comparison.csv", historical_comparison(records))
+        comparison = {"historical_comparison": "historical_comparison.csv", "training_recipe": "original 9-frame pure CD",
+                      "reference_config_sha256": REFERENCE_SHA256,
+                      "historical_initialization_match": "unverified", "historical_score_reproduction_guaranteed": False}
     atomic_json(output / "summary.json", {"scores": records, "gains": deltas,
+        **comparison,
         "primary_schedule": "all1", "ffe": False, "score_scale": "normalized totals in 0-1 units; multiply by 100 for paper tables",
         "uncertainty": "aggregate point estimates only; generation samples are not training-seed repeats",
         "interpretation": "rectification gains do not alone establish a cause of one-step failure"})

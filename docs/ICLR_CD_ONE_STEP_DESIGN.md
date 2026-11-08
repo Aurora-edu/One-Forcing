@@ -1,5 +1,7 @@
 # CD 一步实验：已确认的新设置
 
+**历史扩展实验，已完成。** 这是 21 帧端点监督变体的设计，不能代替原配置 CD。2026-11-08 新任务改用 [ICLR_CD_ORIGINAL_TASK.md](ICLR_CD_ORIGINAL_TASK.md) 的 9 帧纯 CD；保留本文追溯上一轮结果。
+
 本轮仍是 **2 个 CD 正式 run，各 300 updates，seed=0**；加上 frame/chunk 两种粒度 × 两个 seed（各 200 步），共 6 个正式 run。smoke、轨迹生成和诊断是验证/评测，不增加正式训练组。nPEg 优先。
 
 用户选择：保留严格 original/rectified 配对，使用相同 teacher-forcing 历史，并增加诊断隔离历史变化的影响。不要改成两个模型各自产生历史、各自在线生成 teacher 端点的实验，那样会失去跨组固定端点。

@@ -297,8 +297,13 @@ def validate_config(config) -> None:
     ):
         raise ValueError("Memory-efficient initialization requires a sharded text encoder")
     if getattr(config, "iclr_cd_profile", None):
-        from experiments.iclr.cd_protocol import validate_one_step_config
-        validate_one_step_config(config)
+        from experiments.iclr.cd_original_protocol import PROFILE as ORIGINAL_PROFILE
+        if config.iclr_cd_profile == ORIGINAL_PROFILE:
+            from experiments.iclr.cd_original_protocol import validate_config as validate_original
+            validate_original(config)
+        else:
+            from experiments.iclr.cd_protocol import validate_one_step_config
+            validate_one_step_config(config)
 
 
 def main() -> None:
@@ -337,8 +342,13 @@ def main() -> None:
     source_checkpoint = Path(dataset_manifest["generator_ckpt"]).resolve()
     initial_sha256 = None
     if getattr(config, "iclr_cd_profile", None):
-        from experiments.iclr.cd_protocol import verify_ar_source
-        initial_sha256 = verify_ar_source(generator_ckpt, dataset_manifest)
+        from experiments.iclr.cd_original_protocol import PROFILE as ORIGINAL_PROFILE
+        if config.iclr_cd_profile == ORIGINAL_PROFILE:
+            from experiments.iclr.cd_original_protocol import verify_source
+            initial_sha256 = verify_source(generator_ckpt, dataset_manifest)
+        else:
+            from experiments.iclr.cd_protocol import verify_ar_source
+            initial_sha256 = verify_ar_source(generator_ckpt, dataset_manifest)
     elif source_checkpoint != generator_ckpt:
         raise ValueError(
             "The ODE source checkpoint and training initialization must be identical: "
@@ -357,6 +367,9 @@ def main() -> None:
     world_size = dist.get_world_size()
     device = torch.cuda.current_device()
     is_main = rank == 0
+    # init_process_group does not synchronize ranks; every rank must finish the
+    # empty-output check above before rank 0 writes run.intent.json below.
+    dist.barrier()
     dtype = torch.bfloat16 if bool(config.mixed_precision) else torch.float32
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True

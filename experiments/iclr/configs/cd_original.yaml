@@ -1,0 +1,7 @@
+# Restore the historical training recipe; instrumentation is explicit below.
+_base_: ../../rebuttal/configs/train_curvature_cd_small.yaml
+iclr_cd_profile: original_adjacent_cd_9f_v1
+iclr_cd_mode: formal
+endpoint_loss_weight: 0.0
+holdout_rows: 0
+save_initial_checkpoint: false

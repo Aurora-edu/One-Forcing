@@ -1,5 +1,7 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
+**2026-11-08 最新任务：** 已完成实验保留，只补 [原配置 CD 对照](../../docs/ICLR_CD_ORIGINAL_TASK.md)。使用 `python -m experiments.iclr.cd_original`：9 帧、纯 CD、seed=2026、各 300 步；同源轨迹可复用。第 5 节的 `cd_one_step.yaml` 是上一轮已完成的 21 帧端点监督扩展，不能用于本次原配置对照。
+
 分支 `ICLR` 基于 `origin/review` (`bfd5e2d`)，但实验 A 的科学设置以 **`main@c9a2350`** 为准。用户确认主表使用 EMA；对齐依据、自然联动和实现边界见 [ICLR_MAIN_ALIGNMENT.md](../../docs/ICLR_MAIN_ALIGNMENT.md)。旧 `experiments/rebuttal` 的其他任务不会自动启动。
 
 训练机 Codex 的完整执行任务见 [ICLR_TRAINING_MACHINE_TASK.md](../../docs/ICLR_TRAINING_MACHINE_TASK.md)。先读任务说明，再按本手册执行命令。

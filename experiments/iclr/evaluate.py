@@ -16,11 +16,17 @@ def cd_cells(original, rectified, config):
             for arm, checkpoint in (("original", original), ("rectified", rectified))]
 
 
-def audit_cd_checkpoints(original, rectified, config_path):
+def audit_cd_checkpoints(original, rectified, config_path, *, training_profile="endpoint_anchored_cd_v1"):
     import torch
     from omegaconf import OmegaConf
     from utils.config import load_config
-    from experiments.iclr.cd_protocol import validate_done_pair, validate_checkpoint
+    from experiments.iclr.cd_protocol import validate_checkpoint
+    if training_profile == "original_adjacent_cd_9f_v1":
+        from experiments.iclr.cd_original_protocol import validate_done_pair, audit_metrics
+    elif training_profile == "endpoint_anchored_cd_v1":
+        from experiments.iclr.cd_protocol import validate_done_pair
+    else:
+        raise ValueError("unknown CD training profile")
     paths = [Path(original), Path(rectified)]
     done = [json.loads((p.parent.parent / "training.done").read_text()) for p in paths]
     controls = validate_done_pair(*done)
@@ -30,6 +36,8 @@ def audit_cd_checkpoints(original, rectified, config_path):
             or config.independent_first_frame or not config.warp_denoising_step):
         raise ValueError("CD evaluation model/history configuration differs from training protocol")
     for path, run in zip(paths, done):
+        if training_profile == "original_adjacent_cd_9f_v1":
+            audit_metrics(path.parent.parent / "metrics.jsonl", run)
         checkpoint = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
         validate_checkpoint(checkpoint, run, 300)
         del checkpoint
@@ -122,6 +130,8 @@ def main():
     cd = kind.add_parser("cd", help="original/rectified x all1/all4, no FFE")
     cd.add_argument("--original", required=True)
     cd.add_argument("--rectified", required=True)
+    cd.add_argument("--training-profile", choices=("endpoint_anchored_cd_v1", "original_adjacent_cd_9f_v1"),
+                    default="endpoint_anchored_cd_v1", help="explicitly select and audit the training recipe")
     curve = kind.add_parser("curve", help="final step-200 checkpoint from one frame OR chunk run (legacy command name)")
     curve.add_argument("--index", required=True)
     curve.add_argument("--reference-step", type=int, choices=(200,), default=200,
@@ -159,7 +169,8 @@ def main():
         print("DRY RUN: frame/chunk=step200/main_ffe/EMA/Qwen; CD=raw/all1+all4/original; no GPU/model access")
         return
     if args.kind == "cd":
-        provenance = audit_cd_checkpoints(args.original, args.rectified, args.config)
+        provenance = audit_cd_checkpoints(args.original, args.rectified, args.config,
+                                         training_profile=args.training_profile)
         for cell in cells:
             cell.update(provenance)
     from experiments.iclr.launch import parse_gpus, require_idle

@@ -1,6 +1,6 @@
 # ICLR 本机验证记录
 
-最近验证日期：2026-11-07（较早检查日期见各节）。工作目录：`/home/jiaqi/One-Forcing`。
+最近验证日期：2026-11-08（较早检查日期见各节）。工作目录：`/home/jiaqi/One-Forcing`。
 
 最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。最新决定只在第 200 步做 VBench，中间 checkpoint 继续保存但不评测；下文完整曲线检查属于历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
 
@@ -231,3 +231,29 @@ PYTEST
 - Synthetic fixtures 验证默认终点汇总、两 seed 单次值/均值/样本 SD、两组 frame−chunk 配对差值、实际训练耗时；拒绝混入中间点、遗漏 seed 或不一致的协议。汇总不再输出 VBench 曲线。
 - CD 配对训练协议、all1/all4 表、历史诊断和 original/Qwen 配对评测的相关 CPU 检查通过。
 - `git diff --check` 通过。以上均为 CPU 检查与合成数据，不是实际 VBench 分数。未启动 GPU 训练或生成真实视频，未干扰其他 session 的进程。
+
+
+## 原配置 9 帧纯 CD 对照（2026-11-08）
+
+用户要求恢复可追溯的原 CD 训练配方。本次新增独立 `experiments.iclr.cd_original` / `configs/cd_original.yaml`，固定 seed=2026、9 latent frames、300 updates、纯相邻状态 CD、holdout=0、原优化器及 target EMA=0.95；原参考 YAML 的内容 hash 被固定，未修改参考文件。21 帧端点监督变体保持独立历史产物。本轮训练机只新增两组原配方训练及最终 all1/all4 评测，详细交接见 `ICLR_CD_ORIGINAL_TASK.md`。
+
+在相同本机环境、显式隐藏 GPU 后运行全套 CPU 检查：
+
+```bash
+CUDA_VISIBLE_DEVICES='' /home/jiaqi/miniconda3/envs/causal_forcing/bin/python - <<'PYTEST'
+import torch
+import pytest
+torch.cuda.current_device = lambda: 0
+raise SystemExit(pytest.main(['-q', '--tb=short', '--show-capture=no']))
+PYTEST
+# 136 passed in 36.74s
+```
+
+- 10 步真实 `backward_cd_objective` / AdamW CPU toy 与纯 CD 参考优化一致；target 无梯度、没有额外 endpoint forward，frame 9 之后注入 NaN 不进入训练窗口。
+- 构造明确标为 synthetic 的 21 帧 LMDB，用真实数据读取器和 CLI 验证 hash 匹配时可复用、只截取 9 帧且不修改 manifest；源权重变化时拒绝复用。不运行轨迹生成。
+- 验证两个独立 300-update 日志的 75/75/75/75 相邻对计数、全零端点更新、实际 sample-order digest、raw checkpoint 及 profile 隔离；原配置与 21 帧变体不能交叉用于评测。
+- 四条件合成评测验证负增益保留、historical_comparison.csv 与历史原始汇总一致，并明确历史初始化匹配未确认；合成分数不用于论文。
+- 默认与 smoke CLI dry-run 均在不存在的资产路径上通过，不查询 GPU、不启动训练；执行文档中的 bash 片段通过 `bash -n`，`git diff --check` 通过。
+- 纳入训练机的同一处 B200 多 rank intent 写入竞态修复（255c65e 的 barrier），不更改训练损失或优化器。
+
+本次未启动真实 Wan/GPU 训练或生成新视频；两个真实 10 步 smoke、正式训练、四条件评测和实际视频动态检查由训练机按新任务执行。已完成实验保留，不因原配方追加任务重跑；源初始化/轨迹的历史身份尚未确认时，不能保证恢复论文精确分数。

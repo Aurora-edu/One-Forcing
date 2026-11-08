@@ -1,5 +1,7 @@
 # 三位审稿人的合并实验与回应
 
+**2026-11-08 更新：** 原配置 CD 的新增执行范围见 [ICLR_CD_ORIGINAL_TASK.md](ICLR_CD_ORIGINAL_TASK.md)。下表记录上一轮六-run 范围；已完成产物保留，本次只补两个 9 帧纯 CD run 及最终四条件评测。
+
 本文件补充[训练机执行任务](ICLR_TRAINING_MACHINE_TASK.md)。用户已确定：**nPEg 优先，共 6 个正式 run；framewise 与标准 main 设置对齐，chunkwise 仅改 block 大小，主表评测用 EMA。** 详见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)。不运行旧 `run_iclr2027_priority.py` 的整套排程来替代本任务；它针对另一轮 Qwen 消融，且排除了本轮必做的 CD。
 
 ## 问题合并与执行优先级
