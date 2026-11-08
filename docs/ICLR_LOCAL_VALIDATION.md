@@ -2,7 +2,7 @@
 
 最近验证日期：2026-11-08（较早检查日期见各节）。工作目录：`/home/jiaqi/One-Forcing`。
 
-**当前追加范围：** 只准备 [18 帧窗口、seed 42 两组 frame/chunk 对照](ICLR_WINDOW18_SEED42_TASK.md)，第三组已取消。171 项 CPU 回归通过，详见本文件末节；下文旧四组/CD 范围均是此前任务记录。
+**当前追加范围：** [18 帧 frame/chunk + 一步局部拉直 CD](ICLR_CURRENT_EXPERIMENTS_TASK.md)，共 4 个正式 run。frame/chunk 为 seed=42 各 200 步；CD 为 seed=2026 的 Original/Rectified 各 300 步、只评 all1。取消的 chunk/original-prompts 第三组继续取消。171 项 CPU 回归及本次 CD 检查见末节；下文旧四组/旧 CD 范围均是此前任务记录。
 
 最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。最新决定只在第 200 步做 VBench，中间 checkpoint 继续保存但不评测；下文完整曲线检查属于历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
 
@@ -290,3 +290,13 @@ PYTEST
 - CPU 命令产物：`/data/fengjiaqi/One-Forcing/iclr_window18_s42_cpu_18vtjasa/report.json`，包含配置计划和输入 hashes。这是验证产物，不是新实验分数。
 
 没有运行真实 Wan/GPU 训练或生成新视频，也未检查本轮动态视频；这些由训练机按 `ICLR_WINDOW18_SEED42_TASK.md` 执行，每组盯到第 10 步。未停止或修改其他 session 的进程。
+
+## 合并追加的一步局部拉直 CD（2026-11-08）
+
+用户要求将此前新增的一步 CD 并入训练机任务，并明确只做 seed=2026 的 Original/Local Rectified 一对。新增总入口 `ICLR_CURRENT_EXPERIMENTS_TASK.md`，整轮为两个 frame/chunk run + 两个 CD run；取消的独立 chunk/original-prompts 组保持取消。同步更新 CD 子任务和旧入口，去掉本轮运行 seed=2027、报告两 seed SD 的要求。本次只改交接文档，复用既有 `cd_local` / `local_progressive_cd_all1_v1` 代码，不修改训练参数或损失。
+
+- 隐藏 GPU 后运行 `tests/test_iclr_cd_local.py` 和 `tests/test_iclr_cd_original.py`：**25 passed in 12.63s**，覆盖局部干预、纯 CD 配方、同源预检、只评一步、checkpoint/样本配对与汇总。
+- 正式 CLI dry-run：seed=2026、恰好两个训练条件，各 300 updates。Smoke dry-run：恰好两个条件，各 10 updates。评测 dry-run：恰好两个 all1 条件、raw、无 FFE、944×1；不包含 all4。
+- 机器可读计划：`/data/fengjiaqi/One-Forcing/iclr_current_handoff_cpu_e6827s0n/report.json`。以上无真实资产读取或 GPU 访问，没有新增训练结果。
+
+真实 preflight、10 步 GPU 验证、正式训练、评分和动态视频检查仍由训练机按合并任务执行；不因文档更新停止其它 session 的进程。

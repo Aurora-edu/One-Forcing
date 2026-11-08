@@ -1,10 +1,12 @@
 # 训练机 Codex 执行任务：ICLR 2027 补充实验
 
-**当前 frame/chunk 追加任务只执行 [18 帧窗口、seed 42 两组对照](ICLR_WINDOW18_SEED42_TASK.md)。** 第三组已由用户取消；本文件其余四组/CD 为此前任务记录，不能据此重跑整套实验。
+**当前执行范围见 [frame/chunk + 一步 CD 合并任务](ICLR_CURRENT_EXPERIMENTS_TASK.md)。** 新增 seed=42、18 帧窗口的 frame/chunk 两组各 200 步，另加 seed=2026 的 Original/Local Rectified CD 两组各 300 步，共 4 个正式 run。CD 只评 all1、raw、无 FFE；取消的 chunk/original-prompts 第三组继续取消。本文件下方旧四组/旧 CD 为此前任务记录，不能据此重跑整套实验。
 
 **当前一步实验更新：** 以[高噪声状态局部渐进拉直任务](ICLR_CD_LOCAL_ALL1_TASK.md)为准，只评测 Original/Rectified 两个 all1 条件，首帧也一步；不运行四步生成或四步评测。下文旧四条件方案保留作历史记录，不是本次执行范围。
 
-**2026-11-08 最新追加任务：补原配置 CD 对照。** 已完成实验保留，本次只执行 [ICLR_CD_ORIGINAL_TASK.md](ICLR_CD_ORIGINAL_TASK.md)：9 帧、纯 CD、seed=2026、两组各 300 步，再评一步/四步；优先复用 hash 匹配的现有轨迹。下文 21 帧端点监督 CD 是上一轮扩展设置，不能替代原配置对照，也不要重跑整套 A/B/C。
+**此前原配置 CD 任务（历史记录）：** [ICLR_CD_ORIGINAL_TASK.md](ICLR_CD_ORIGINAL_TASK.md)保留用于追溯。本轮新增 CD 只按上方 `cd_local` 文档执行，不追加四步；下文 21 帧端点监督 CD 也不属于本轮。
+
+**以下为此前整套任务记录，保留作追溯；本轮按上方合并任务执行，不根据下文旧范围追加训练、seed 或评测条件。**
 
 请接手并执行本文件中的实验。这是执行任务，不要只返回计划。先检查环境和资产，再完成 GPU 验证、正式训练及评测。某项缺少资产时，继续推进其他独立工作。
 

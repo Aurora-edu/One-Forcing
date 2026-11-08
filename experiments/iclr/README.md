@@ -1,12 +1,14 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
-**当前 frame/chunk 追加任务：** 按 [18 帧窗口、seed 42 任务](../../docs/ICLR_WINDOW18_SEED42_TASK.md)只新增 `frame_w18_s42` / `chunk_w18_s42` 两组，R1/R2 关闭、各 200 步，仅最终 EMA/main_ffe/Qwen VBench。第三组独立 chunk/original-prompts 已取消。必须显式选择 `--profile matched_window18_s42_v1`；下方旧四组和 CD 是先前任务，不随本轮重新启动。
+**当前总任务：** 执行 [frame/chunk + 一步 CD 合并任务](../../docs/ICLR_CURRENT_EXPERIMENTS_TASK.md)：`frame_w18_s42` / `chunk_w18_s42` 各 200 步，加 seed=2026 的 Original/Local Rectified CD 各 300 步，共 **4 个正式训练 run**。A 仅最终 EMA/main_ffe/Qwen；B 仅最终 raw/all1/original prompts。取消的独立 chunk/original-prompts 第三组继续取消，旧四组和旧 CD 不重跑。
 
 **当前一步实验更新：** 以[高噪声状态局部渐进拉直任务](../../docs/ICLR_CD_LOCAL_ALL1_TASK.md)为准，只评测 Original/Rectified 两个 all1 条件，首帧也一步；不运行四步生成或四步评测。下文旧四条件方案保留作历史记录，不是本次执行范围。
 
-**2026-11-08 最新任务：** 已完成实验保留，只补 [原配置 CD 对照](../../docs/ICLR_CD_ORIGINAL_TASK.md)。使用 `python -m experiments.iclr.cd_original`：9 帧、纯 CD、seed=2026、各 300 步；同源轨迹可复用。第 5 节的 `cd_one_step.yaml` 是上一轮已完成的 21 帧端点监督扩展，不能用于本次原配置对照。
+**此前原配置 CD 任务（历史记录）：** [原配置 CD 对照](../../docs/ICLR_CD_ORIGINAL_TASK.md)使用 `python -m experiments.iclr.cd_original`。本轮追加的 CD 改用上方 `cd_local` 一步局部渐进拉直方案，不能据下文旧命令追加四步。第 5 节的 `cd_one_step.yaml` 是上一轮已完成的 21 帧端点监督扩展，不属于本轮。
 
 现有 frame/chunk 结果与历史失稳观察的核查见 [ICLR_FRAME_CHUNK_AUDIT.md](../../docs/ICLR_FRAME_CHUNK_AUDIT.md)：只读检查实际配置、权重/EMA、导出记录和原始分数，可准备 64 个终点视觉诊断样例，不新增训练或中间 VBench。
+
+**以下为此前整套实验的历史手册，保留作追溯；本轮只执行上方合并任务中指定的四个正式 run，不按下文旧范围追加训练或评测。**
 
 分支 `ICLR` 基于 `origin/review` (`bfd5e2d`)，但实验 A 的科学设置以 **`main@c9a2350`** 为准。用户确认主表使用 EMA；对齐依据、自然联动和实现边界见 [ICLR_MAIN_ALIGNMENT.md](../../docs/ICLR_MAIN_ALIGNMENT.md)。旧 `experiments/rebuttal` 的其他任务不会自动启动。
 

@@ -1,6 +1,6 @@
 # 训练机任务：高噪声状态局部渐进拉直，只评一步
 
-本文件是本次新实验的唯一执行范围。只做 **Original 与 Local-progressive Rectified 的 all1 对照**。不生成四步样例，不运行四步 VBench，不沿用旧 `evaluate cd` 的默认四条件命令。本次是新干预方案，不称为原论文实验的精确复现，也不以“Rectified 必须涨分”作为验收条件。
+本文件规定本轮的一步 CD 子任务，整轮任务见 [ICLR_CURRENT_EXPERIMENTS_TASK.md](ICLR_CURRENT_EXPERIMENTS_TASK.md)。只做 **Original 与 Local-progressive Rectified 的 all1 对照，training seed=2026 一对**。不生成四步样例，不运行四步 VBench，不沿用旧 `evaluate cd` 的默认四条件命令。本次是新干预方案，不称为原论文实验的精确复现，也不以“Rectified 必须涨分”作为验收条件。
 
 ## 固定设置与唯一干预
 
@@ -38,7 +38,7 @@ export CDLP_SEED=2026
 export CDLP_OUT="$CDLP_BASE/seed$CDLP_SEED"
 ```
 
-正式建议完成 seeds 2026、2027 各一对，共四个 run。先完整完成 seed 2026，再更换 `CDLP_SEED=2027` 和独立输出目录，按相同流程执行。不要同时占用同一批卡，不因某 seed 的分数不理想而跳过它；不自动追加其它 seeds。每个 seed 只有两个最终 all1 评测条件。
+用户已确认本轮**只完成 seed=2026 一对，共两个正式 CD run**，不要运行 seed=2027 或追加其它 seeds。每组各 300 updates，最终只有两个 all1 评测条件。不要同时占用同一批卡，不因分数不理想而更换 seed 或删除结果。
 
 ## 资产复用与预检
 
@@ -108,10 +108,10 @@ smoke 完成后，只用 `--schedule all1` 为两个 step-10 raw 模型导出相
   --evaluations "$CDLP_OUT/eval" --output "$CDLP_OUT/summary"
 ```
 
-执行前 dry-run 应恰好打印两个导出命令，均为 `--schedule all1`。新 profile 的评测入口不会生成四步条件，汇总只要求 `cd_original_all1` / `cd_rectified_all1`，发现混入其它 CD 条件就拒绝。每个 seed 共 1888 条评测视频；两个 seed 共 3776 条。
+执行前 dry-run 应恰好打印两个导出命令，均为 `--schedule all1`。新 profile 的评测入口不会生成四步条件，汇总只要求 `cd_original_all1` / `cd_rectified_all1`，发现混入其它 CD 条件就拒绝。本轮 seed=2026 共 1888 条评测视频。
 
 ## 交付与解释
 
-报告每个 seed 的 Original / Rectified 单次分数及配对差值，两 seeds 的均值、样本 SD；n=2 不声称显著性。保留负结果，不按 VBench 修改 ramp、state index、seed 或 checkpoint。若固定历史误差改善而自由生成没有改善，下一步才考虑共同生成历史下的新配对训练；不能直接替换历史却沿用旧条件下的 teacher 目标。
+报告 seed=2026 的 Original / Rectified 单次原始分数及配对差值；只有一个 training seed，不报告跨 seed 均值/SD 或显著性。保留负结果，不按 VBench 修改 ramp、state index、seed 或 checkpoint。若固定历史误差改善而自由生成没有改善，下一步才考虑共同生成历史下的新配对训练；不能直接替换历史却沿用旧条件下的 teacher 目标。
 
 打包 preflight、配置、两组 run.intent/training.done/metrics、paired audit、验证行选择、诊断 CSV/JSON、两条件原始 VBench JSON/protocol/环境偏差、导出校验和 seed manifests、固定同 prompts 的实际 MP4、视频检查记录及 summary。保留已有 B200 wrapper 和修复，记录实际运行的 Git commit；若使用离线补丁，同时记录补丁 hash。不要把大权重或 LMDB 放进轻量结果包。
