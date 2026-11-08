@@ -1,6 +1,6 @@
 # Framewise / chunkwise：18 帧反传窗口、seed 42
 
-本文规定本轮 frame/chunk 子任务，只新增下面 **2 个独立训练 run**。整轮任务另含 [seed=2026 的一步局部拉直 CD 对照](ICLR_CD_LOCAL_ALL1_TASK.md)，总入口见 [ICLR_CURRENT_EXPERIMENTS_TASK.md](ICLR_CURRENT_EXPERIMENTS_TASK.md)；不重跑已完成的旧 seeds 0/1 或旧 CD。原计划第三组「公开 One-Forcing 对应配方独立训练 chunkwise、original prompts 评测」已由用户取消；不要自行恢复。
+本文规定本轮 frame/chunk 子任务，只新增下面 **2 个独立训练 run**。整轮任务另含 [seed=2026 的一步局部拉直 CD 对照](ICLR_CD_LOCAL_ALL1_TASK.md)和[旧 seed=0 复用权重补 original 评测](ICLR_SEED0_ORIGINAL_EVAL_TASK.md)，总入口见 [ICLR_CURRENT_EXPERIMENTS_TASK.md](ICLR_CURRENT_EXPERIMENTS_TASK.md)；不重跑旧 seeds 0/1 训练、旧 Qwen 评测或旧 CD。原计划第三组「公开 One-Forcing 对应配方独立训练 chunkwise、original prompts 评测」已由用户取消；不要自行恢复。
 
 | Run | 每 block latent 帧数 | 实际反传窗口 | training seed | R1/R2 | 正式训练 |
 |---|---:|---:|---:|---|---:|

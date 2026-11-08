@@ -1,6 +1,6 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
-**当前总任务：** 执行 [frame/chunk + 一步 CD 合并任务](../../docs/ICLR_CURRENT_EXPERIMENTS_TASK.md)：`frame_w18_s42` / `chunk_w18_s42` 各 200 步，加 seed=2026 的 Original/Local Rectified CD 各 300 步，共 **4 个正式训练 run**。A 仅最终 EMA/main_ffe/Qwen；B 仅最终 raw/all1/original prompts。取消的独立 chunk/original-prompts 第三组继续取消，旧四组和旧 CD 不重跑。
+**当前总任务：** 执行 [frame/chunk、一步 CD、旧 seed=0 original 评测合并任务](../../docs/ICLR_CURRENT_EXPERIMENTS_TASK.md)：A 为 `frame_w18_s42` / `chunk_w18_s42` 各 200 步，B 为 seed=2026 的 Original/Local Rectified CD 各 300 步，C 为旧 `frame_roff_s0` / `chunk_roff_s0` 复用权重补 original 评测。仍为 **4 个正式训练 run、6 个新增终点评测条件**。A 用 EMA/main_ffe/Qwen，B 用 raw/all1/original 944×1，C 用 EMA/main_ffe/original 944×5。取消的公开配方独立 chunk 第三组继续取消；旧训练和旧 Qwen 评测不重跑。
 
 **当前一步实验更新：** 以[高噪声状态局部渐进拉直任务](../../docs/ICLR_CD_LOCAL_ALL1_TASK.md)为准，只评测 Original/Rectified 两个 all1 条件，首帧也一步；不运行四步生成或四步评测。下文旧四条件方案保留作历史记录，不是本次执行范围。
 
@@ -8,7 +8,7 @@
 
 现有 frame/chunk 结果与历史失稳观察的核查见 [ICLR_FRAME_CHUNK_AUDIT.md](../../docs/ICLR_FRAME_CHUNK_AUDIT.md)：只读检查实际配置、权重/EMA、导出记录和原始分数，可准备 64 个终点视觉诊断样例，不新增训练或中间 VBench。
 
-**以下为此前整套实验的历史手册，保留作追溯；本轮只执行上方合并任务中指定的四个正式 run，不按下文旧范围追加训练或评测。**
+**以下为此前整套实验的历史手册，保留作追溯；本轮只执行上方合并任务中指定的四个正式 run 与六个新增评测条件，不按下文旧范围追加训练或评测。**
 
 分支 `ICLR` 基于 `origin/review` (`bfd5e2d`)，但实验 A 的科学设置以 **`main@c9a2350`** 为准。用户确认主表使用 EMA；对齐依据、自然联动和实现边界见 [ICLR_MAIN_ALIGNMENT.md](../../docs/ICLR_MAIN_ALIGNMENT.md)。旧 `experiments/rebuttal` 的其他任务不会自动启动。
 

@@ -2,7 +2,7 @@
 
 最近验证日期：2026-11-08（较早检查日期见各节）。工作目录：`/home/jiaqi/One-Forcing`。
 
-**当前追加范围：** [18 帧 frame/chunk + 一步局部拉直 CD](ICLR_CURRENT_EXPERIMENTS_TASK.md)，共 4 个正式 run。frame/chunk 为 seed=42 各 200 步；CD 为 seed=2026 的 Original/Rectified 各 300 步、只评 all1。取消的 chunk/original-prompts 第三组继续取消。171 项 CPU 回归及本次 CD 检查见末节；下文旧四组/旧 CD 范围均是此前任务记录。
+**当前追加范围：** [18 帧 frame/chunk、一步 CD、旧 seed=0 original 评测](ICLR_CURRENT_EXPERIMENTS_TASK.md)，仍为 4 个正式 run、6 个新增终点评测条件。frame/chunk 为 seed=42 各 200 步；CD 为 seed=2026 的 Original/Rectified 各 300 步、只评 all1；另复用旧 seed=0 frame/chunk 权重补 original/EMA/main_ffe/944×5 评测，不重新训练。取消的公开配方独立 chunk 第三组继续取消。CPU 检查见末节；下文旧四组/旧 CD 范围均是此前任务记录。
 
 最新范围：实验 A 为 `frame_roff_s0`、`chunk_roff_s0`、`frame_roff_s1`、`chunk_roff_s1`，R1/R2 全关；加上 CD 两组，共 6 个正式训练 run。A 以 `main@c9a2350` 为标准，恢复梯度 17-block 策略、EMA 和 main 首块增强；四组均固定 200 iterations，在 0/50/100/150/200 步保存。下文旧 12-run、三-run、五-run 以及 EMA-off 六-run 检查均为历史记录。最新决定只在第 200 步做 VBench，中间 checkpoint 继续保存但不评测；下文完整曲线检查属于历史记录。当前设置见 [main 对齐记录](ICLR_MAIN_ALIGNMENT.md)及本文件末尾。
 
@@ -300,3 +300,14 @@ PYTEST
 - 机器可读计划：`/data/fengjiaqi/One-Forcing/iclr_current_handoff_cpu_e6827s0n/report.json`。以上无真实资产读取或 GPU 访问，没有新增训练结果。
 
 真实 preflight、10 步 GPU 验证、正式训练、评分和动态视频检查仍由训练机按合并任务执行；不因文档更新停止其它 session 的进程。
+
+## 旧 seed=0 权重复用：original prompts 追加评测（2026-11-08）
+
+用户要求复用上一轮 `frame_roff_s0` / `chunk_roff_s0`，将 Qwen prompts 改为 original 再评测，不重新训练。新增 `ICLR_SEED0_ORIGINAL_EVAL_TASK.md` 并并入总入口；沿用实际旧 step-200 EMA、main_ffe、21 帧、16 fps、944×5 samples 和相同噪声 seeds。旧反传窗口 frame 17 / chunk 21 保持历史记录，不冒充新 18 帧对照。整轮仍为 4 个新正式训练 run，增加两个 original 评测后为 6 个新终点条件。
+
+- 隐藏 GPU 后运行 `tests/test_iclr_prompt_ablation.py` 和 main_ffe 的真实 shell/pipeline 配置检查：**7 passed in 4.49s**。本次仅改交接文档，复用已有 `prompt_ablation` CLI。
+- CPU CLI dry-run 对两方法各恰好一个 original 条件，显式 EMA/main_ffe/5 samples；没有 Qwen 重评、训练或 GPU 查询。
+- `--prepare-only` 为两模型分别生成相同的 4720 条 original manifest，并验证与 pinned Qwen 的 prompt_index / sample_index / prompt / seed / output_name 逐条对应，只删除 rewrite 字段。没有加载真实 checkpoint。
+- CPU 验证产物：`/data/fengjiaqi/One-Forcing/iclr_seed0_original_cpu_jz6usjlp/report.json`。本机没有旧正式权重和完整导出记录；训练机须按旧 export.intent 的实际路径核实源 checkpoint/config 后执行，不用公开权重或新 seed=42 模型替换。
+
+没有新增真实 GPU 训练、视频或 VBench 分数；本轮 C 的动态视频检查与原始评分仍待训练机完成。

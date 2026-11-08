@@ -1,6 +1,6 @@
 # 训练机 Codex 执行任务：ICLR 2027 补充实验
 
-**当前执行范围见 [frame/chunk + 一步 CD 合并任务](ICLR_CURRENT_EXPERIMENTS_TASK.md)。** 新增 seed=42、18 帧窗口的 frame/chunk 两组各 200 步，另加 seed=2026 的 Original/Local Rectified CD 两组各 300 步，共 4 个正式 run。CD 只评 all1、raw、无 FFE；取消的 chunk/original-prompts 第三组继续取消。本文件下方旧四组/旧 CD 为此前任务记录，不能据此重跑整套实验。
+**当前执行范围见 [frame/chunk、一步 CD、旧 seed=0 original 评测合并任务](ICLR_CURRENT_EXPERIMENTS_TASK.md)。** 新增 seed=42、18 帧窗口的 frame/chunk 两组各 200 步，另加 seed=2026 的 Original/Local Rectified CD 两组各 300 步，仍为 4 个正式训练 run。再复用旧 seed=0 frame/chunk 的 step-200 EMA 权重补 original/main_ffe/944×5 评测，共 6 个新增终点条件；C 不训练。CD 只评 all1、raw、无 FFE；取消的公开配方独立 chunk 第三组继续取消。本文件下方旧四组/旧 CD 为此前任务记录。
 
 **当前一步实验更新：** 以[高噪声状态局部渐进拉直任务](ICLR_CD_LOCAL_ALL1_TASK.md)为准，只评测 Original/Rectified 两个 all1 条件，首帧也一步；不运行四步生成或四步评测。下文旧四条件方案保留作历史记录，不是本次执行范围。
 

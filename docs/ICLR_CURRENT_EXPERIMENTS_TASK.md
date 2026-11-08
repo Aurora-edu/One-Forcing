@@ -1,6 +1,6 @@
-# 本轮训练机任务：18 帧 frame/chunk + 一步局部拉直 CD
+# 本轮训练机任务：18 帧 frame/chunk、一步 CD、旧 seed=0 original 评测
 
-这是本轮总任务入口。请执行实验并交付原始结果；先阅读适用的 AGENTS.md，保留已有修改和其它 session 的进程。使用最新 `ICLR` 分支和训练机已经跑通的 B200 环境、资产、VBench wrapper。两项实验分别按下面链接执行，不将训练或评测配置混用。
+这是本轮总任务入口。请执行实验并交付原始结果；先阅读适用的 AGENTS.md，保留已有修改和其它 session 的进程。使用最新 `ICLR` 分支和训练机已经跑通的 B200 环境、资产、VBench wrapper。三个子任务分别按下面链接执行，保持各自训练和评测设置。
 
 ## 本轮范围
 
@@ -8,10 +8,11 @@
 |---|---|---:|---:|---|
 | A：反传窗口一致的粒度消融 | `frame_w18_s42`、`chunk_w18_s42` | 42 | 200 iterations | step 200，EMA + main_ffe，pinned Qwen，944×5 |
 | B：高噪声状态局部渐进拉直 CD | Original（`curved`）、Local Rectified（`rectified`） | **2026** | 300 updates | step 300，**raw + all1，无 FFE**，原始 prompts，944×1 |
+| C：旧 seed=0 权重的 original prompts 评测 | **无新增训练**，复用 `frame_roff_s0` / `chunk_roff_s0` | 旧训练 seed=0 | 不训练 | 同一 step-200 权重，EMA + main_ffe，original，944×5 |
 
-**合计 4 个正式训练 run、4 个终点 VBench 条件。** A 共 9440 条评测视频，B 共 1888 条，共 11328 条。B 的两个 10-update smoke 是预检，不计入正式 run 或 VBench 条件。每组正式训练都要观察到第 10 步；长任务全部放独立 tmux，顺序使用同一组空闲 8 卡。
+**合计仍为 4 个正式训练 run，新增终点 VBench 共 6 个条件。** A 共 9440 条评测视频，B 共 1888 条，C 共 9440 条，共 20768 条。C 只复用旧权重，不重新训练或重跑旧 Qwen 评测。B 的两个 10-update smoke 是预检，不计入正式 run 或 VBench 条件。每组正式训练都要观察到第 10 步；长任务全部放独立 tmux，顺序使用同一组空闲 8 卡。
 
-用户已确认 B 本轮只做 seed=2026 一对，不运行 seed=2027，也不对单 seed 报告训练方差。此前取消的是「公开 One-Forcing 配方独立训练 chunkwise，再测 original prompts」那一组；它继续取消，与本次 CD 无关。已完成的旧 seeds 0/1、端点监督 CD 和旧四步 CD 都保留，不重跑。
+用户已确认 B 本轮只做 seed=2026 一对，不运行 seed=2027，也不对单 seed 报告训练方差。此前取消的是「公开 One-Forcing 配方独立训练 chunkwise，再测 original prompts」那一组；它继续取消，与本次 CD 和 C 的复用权重评测无关。已完成的旧 seeds 0/1 训练、旧 Qwen 评测、端点监督 CD 和旧四步 CD 都保留，不重跑。
 
 ## A：先完成 frame/chunk 对照
 
@@ -48,10 +49,16 @@ export CDLP_OUT="$CDLP_BASE/seed$CDLP_SEED"
 
 B 的评测必须显式传 `--training-profile local_progressive_cd_all1_v1`。评测 dry-run 应恰好打印两个 `--schedule all1` 命令；旧 `evaluate cd` 的默认四条件不适用。缺原始 prompts manifest 时，用现有 `experiments.iclr.prompt_ablation --prepare-only --samples-per-prompt 1` 准备同协议文件，再把 `manifests/prompts.txt` / `manifests/original.jsonl` 显式传入 CD 评测，不改成 Qwen 或五样本。
 
+## C：旧 seed=0 frame/chunk 只补 original 评测
+
+执行 [ICLR_SEED0_ORIGINAL_EVAL_TASK.md](ICLR_SEED0_ORIGINAL_EVAL_TASK.md)。复用 `frame_roff_s0` / `chunk_roff_s0` 原 Qwen 导出实际使用的 step-200 checkpoint，继续用 EMA/main_ffe。只把 conditioning 改为 original prompts，仍为 944×5、相同 prompt/sample/noise seeds；两个新增评测均不训练，不替换成 seed=42 或公开权重。
+
+旧模型的实际反传窗口仍为 frame 17 / chunk 21，不能标成 A 的 18 帧匹配窗口。使用现有 `experiments.iclr.prompt_ablation --conditioning original --samples-per-prompt 5` 分别评测两模型，并与旧 Qwen 原始分数做对照。具体权重来源核查、准备输入、执行和交付命令见子任务文件。
+
 ## 验证和交付
 
-两项任务顺序执行，不抢占其它 session 的 GPU。每组检查前 10 步 loss/grad norm 与实际配置；失败时保留日志，不按分数调 seed、训练步数或干预强度。观察实际完整 MP4，保留固定同 prompts 的配对视频、观看记录和异常；指标或静态拼图不能代替动态视频检查。
+三个子任务顺序执行，不抢占其它 session 的 GPU。每个新训练 run 检查前 10 步 loss/grad norm 与实际配置；C 不启动训练。失败时保留日志，不按分数调 seed、训练步数或干预强度。观察实际完整 MP4，保留固定同 prompts 的配对视频、观看记录和异常；指标或静态拼图不能代替动态视频检查。
 
-A、B 各自使用独立输出根目录、manifests 和汇总。A 交付 frame−chunk 单次原始分数与配对差值；B 交付 Original/Rectified 的 Total/Quality/Semantic、16 维原始分数、Rectified−Original 差值与一步诊断。两项都只有一个 training seed，不估计 seed 方差。
+A、B、C 各自使用独立输出根目录、manifests 和汇总。A 交付 frame−chunk 单次原始分数与配对差值；B 交付 Original/Rectified 的 Total/Quality/Semantic、16 维原始分数、Rectified−Original 差值与一步诊断；C 交付旧 seed=0 两模型的 original 原始分数、frame−chunk 差值及相同权重的 original−Qwen 差值。每个子任务都只有一个 training seed，不估计 seed 方差。
 
-最后提供 4 个正式 run 的配置、实际 seed、源码 commit/环境、初始化和数据 hashes、训练日志/实际耗时、最终权重路径、原始 VBench JSON、导出/评分 provenance、视频样例与检查记录。汇总表区分 0–1 和百分制，不混算两项不同评测协议；打包轻量结果时不放大权重或 LMDB。
+最后提供 4 个正式 run 的训练产物，以及 C 复用权重的来源记录；包含配置、实际 seed、源码 commit/环境、初始化和数据 hashes、训练日志/实际耗时、最终权重路径、6 个新增条件的原始 VBench JSON、导出/评分 provenance、视频样例与检查记录。汇总表区分 0–1 和百分制，各子任务单独呈现；打包轻量结果时不放大权重或 LMDB。
