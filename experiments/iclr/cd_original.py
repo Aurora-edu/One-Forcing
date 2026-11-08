@@ -24,7 +24,12 @@ def preflight(data, checkpoint, config):
     import torch
     from experiments.rebuttal.curvature_intervention import CurvatureTrajectoryDataset, MANIFEST_NAME, rectify_trajectory
     from experiments.rebuttal.audit_curvature_cd_design import resolve_eval_timesteps
-    validate_config(config)
+    local = config.get("iclr_cd_profile") == "local_progressive_cd_all1_v1"
+    if local:
+        from experiments.iclr.cd_local_protocol import validate_config as check, transform
+        check(config)
+    else:
+        validate_config(config)
     data, checkpoint = Path(data).resolve(), Path(checkpoint).resolve()
     manifest_path = data / MANIFEST_NAME
     manifest = json.loads(manifest_path.read_text())
@@ -37,7 +42,8 @@ def preflight(data, checkpoint, config):
             raise ValueError("original CD requires at least the eight-row global batch")
         for index in range(min(8, size)):
             left = dataset[index]["trajectory"][:, :9]
-            right = rectify_trajectory(left, dataset.selected_timesteps)
+            right = (transform(left.unsqueeze(0), dataset.selected_timesteps, step=100, enabled=True)[0][0]
+                     if local else rectify_trajectory(left, dataset.selected_timesteps))
             if not torch.isfinite(left).all() or not torch.isfinite(right).all():
                 raise ValueError("nonfinite original CD trajectory")
             for point in (0, -2, -1):
@@ -47,16 +53,18 @@ def preflight(data, checkpoint, config):
     finally:
         dataset.env.close()
     mean_difference = torch.stack(differences).mean(0).tolist()
-    if not all(value > 0 for value in mean_difference[1:4]):
+    if local and not (mean_difference[1] > 0 and all(mean_difference[i] == 0 for i in (0, 2, 3, 4, 5))):
+        raise ValueError("local treatment must change only the highest-noise interior state")
+    if not local and not all(value > 0 for value in mean_difference[1:4]):
         raise ValueError("trajectory rectification did not change all three interior states in the audited 9-frame window")
     schedules = {}
-    for schedule in ("all1", "all4"):
+    for schedule in (("all1",) if local else ("all1", "all4")):
         _, resolved = resolve_eval_timesteps(REPO / f"experiments/rebuttal/configs/eval_{schedule}.yaml")
         expected = manifest["selected_timesteps"][:1 if schedule == "all1" else 4]
         if len(resolved) != len(expected) or any(abs(a - b) > 1e-4 for a, b in zip(resolved, expected)):
             raise ValueError("original CD evaluation schedule differs from trajectory inputs")
         schedules[schedule] = resolved
-    return {"status": "pass", "iclr_cd_profile": PROFILE,
+    return {"status": "pass", "iclr_cd_profile": config.iclr_cd_profile,
             "reference_config_sha256": REFERENCE_SHA256, "config": OmegaConf.to_container(config, resolve=True),
             "trainer_source_sha256": sha256_file(REPO / "experiments/rebuttal/train_curvature_cd.py"),
             "initial_generator_sha256": digest, "dataset_manifest_sha256": sha256_file(manifest_path),
@@ -68,10 +76,16 @@ def preflight(data, checkpoint, config):
             "historical_score_reproduction_guaranteed": False}
 
 
-def completed_pair(output, *, mode="formal"):
+def completed_pair(output, *, mode="formal", profile=PROFILE):
+    if profile == "local_progressive_cd_all1_v1":
+        from experiments.iclr.cd_local_protocol import validate_done_pair as pair_check, audit_metrics as metric_check
+    elif profile == PROFILE:
+        pair_check, metric_check = validate_done_pair, audit_metrics
+    else:
+        raise ValueError("unknown CD profile")
     done = [json.loads((Path(output) / arm / "training.done").read_text()) for arm in ("curved", "rectified")]
-    controls = validate_done_pair(*done, mode=mode)
-    metrics = {arm: audit_metrics(Path(output) / arm / "metrics.jsonl", run)
+    controls = pair_check(*done, mode=mode)
+    metrics = {arm: metric_check(Path(output) / arm / "metrics.jsonl", run)
                for arm, run in zip(("curved", "rectified"), done)}
     return {"status": "pass", "controls": controls, "actual_updates": metrics,
             "reference_config_sha256": REFERENCE_SHA256,

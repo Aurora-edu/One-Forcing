@@ -298,7 +298,10 @@ def validate_config(config) -> None:
         raise ValueError("Memory-efficient initialization requires a sharded text encoder")
     if getattr(config, "iclr_cd_profile", None):
         from experiments.iclr.cd_original_protocol import PROFILE as ORIGINAL_PROFILE
-        if config.iclr_cd_profile == ORIGINAL_PROFILE:
+        if config.iclr_cd_profile == "local_progressive_cd_all1_v1":
+            from experiments.iclr.cd_local_protocol import validate_config as validate_local
+            validate_local(config)
+        elif config.iclr_cd_profile == ORIGINAL_PROFILE:
             from experiments.iclr.cd_original_protocol import validate_config as validate_original
             validate_original(config)
         else:
@@ -343,7 +346,7 @@ def main() -> None:
     initial_sha256 = None
     if getattr(config, "iclr_cd_profile", None):
         from experiments.iclr.cd_original_protocol import PROFILE as ORIGINAL_PROFILE
-        if config.iclr_cd_profile == ORIGINAL_PROFILE:
+        if config.iclr_cd_profile in (ORIGINAL_PROFILE, "local_progressive_cd_all1_v1"):
             from experiments.iclr.cd_original_protocol import verify_source
             initial_sha256 = verify_source(generator_ckpt, dataset_manifest)
         else:
@@ -414,7 +417,9 @@ def main() -> None:
         )
     dist.barrier()
 
-    dataset = CurvatureTrajectoryDataset(str(data_path), args.intervention)
+    local_profile = getattr(config, "iclr_cd_profile", None) == "local_progressive_cd_all1_v1"
+    # The new treatment needs original states; never start from globally rectified data.
+    dataset = CurvatureTrajectoryDataset(str(data_path), "curved" if local_profile else args.intervention)
     training_num_frames = int(config.training_num_frames)
     if training_num_frames > dataset.shape[2]:
         raise ValueError(
@@ -496,6 +501,9 @@ def main() -> None:
         "target_ema_decay": float(config.target_ema_decay),
         "evaluation_use_ema": False,
     }
+    if local_profile:
+        metadata["rectification_treatment"] = ("high_noise_local_progressive"
+                                                 if args.intervention == "rectified" else "none")
     metrics_path = output_dir / "metrics.jsonl"
     sample_order_digest = hashlib.sha256()
     start_time = time.time()
@@ -505,7 +513,14 @@ def main() -> None:
     for step in range(1, int(config.max_steps) + 1):
         step_start = time.time()
         batch, iterator, epoch = next_batch(iterator, loader, sampler, epoch)
-        trajectory = batch["trajectory"].to(device=device, dtype=dtype)
+        if local_profile:
+            from experiments.iclr.cd_local_protocol import transform
+            trajectory, rectification_alpha, rectification_mse = transform(
+                batch["trajectory"].to(device=device, dtype=torch.float32),
+                dataset.selected_timesteps, step=step, enabled=args.intervention == "rectified")
+            trajectory = trajectory.to(dtype=dtype)
+        else:
+            trajectory = batch["trajectory"].to(device=device, dtype=dtype)
         prompts = list(batch["prompt"])
         local_row_indices = batch["row_index"].to(device=device, dtype=torch.long)
         gathered_row_indices = [torch.empty_like(local_row_indices) for _ in range(world_size)]
@@ -522,8 +537,11 @@ def main() -> None:
         require_finite(grad_norm, "gradient norm")
         optimizer.step()
         update_ema_target(generator, target_generator, float(config.target_ema_decay))
-        reduced = torch.stack((objective["loss"].float(), grad_norm.detach().float(),
-                               objective["cd_loss"].float(), objective["endpoint_loss"].float()))
+        values = [objective["loss"].float(), grad_norm.detach().float(),
+                  objective["cd_loss"].float(), objective["endpoint_loss"].float()]
+        if local_profile:
+            values.append(rectification_mse.float())
+        reduced = torch.stack(values)
         dist.all_reduce(reduced, op=dist.ReduceOp.SUM)
         reduced /= world_size
         high_t, low_t = objective["high_timestep"], objective["low_timestep"]
@@ -553,6 +571,9 @@ def main() -> None:
                 "intervention": args.intervention,
                 "evaluation_use_ema": False,
             }
+            if local_profile:
+                record.update(rectification_alpha=rectification_alpha,
+                              rectification_mse=float(reduced[4].item()))
             append_jsonl(metrics_path, record)
             if step <= 10 or step % int(config.print_interval) == 0:
                 print(

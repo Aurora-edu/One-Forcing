@@ -128,12 +128,24 @@ def run_worker(args):
     training_root, output = Path(args.training_root), Path(args.output)
     done = {arm: json.loads((training_root / arm / "training.done").read_text())
             for arm in ("curved", "rectified")}
-    controls = validate_done_pair(done["curved"], done["rectified"], mode="smoke" if args.smoke else "formal")
+    local = args.training_profile == "local_progressive_cd_all1_v1"
+    if local:
+        from experiments.iclr.cd_local_protocol import validate_done_pair as check_pair
+        from experiments.iclr.cd_local_validation import selection
+        if not args.validation_rows:
+            raise ValueError("local all1 diagnostics require an explicit unseen-row selection")
+        recorded = json.loads(Path(args.validation_rows).read_text())
+        expected = selection(training_root, args.data, count=len(recorded["row_indices"]), smoke=args.smoke)
+        if recorded != expected:
+            raise ValueError("local diagnostic selection differs from unseen, prompt-disjoint rows")
+    else:
+        check_pair = validate_done_pair
+    controls = check_pair(done["curved"], done["rectified"], mode="smoke" if args.smoke else "formal")
     manifest_hash = sha256_file(Path(args.data) / MANIFEST_NAME)
     if controls["dataset_manifest_sha256"] != manifest_hash:
         raise ValueError("diagnostic data differs from the shared training dataset")
-    steps = (0, 5, 10) if args.smoke else SAVE_STEPS
-    rows = list(range(8 if args.smoke else 64))
+    steps = ((10 if args.smoke else 300),) if local else ((0, 5, 10) if args.smoke else SAVE_STEPS)
+    rows = recorded["row_indices"] if local else list(range(8 if args.smoke else 64))
     video_rows = 2 if args.smoke else 4
     if rank == 0:
         output.mkdir(parents=True, exist_ok=False)
@@ -176,7 +188,7 @@ def run_worker(args):
                         stream.write(json.dumps({"arm": arm, "step": step, "row_index": index,
                             "prompt": item["prompt"], "noise_seed": item["noise_seed"], **errors}, allow_nan=False) + "\n")
                     stream.flush()
-                    if step == steps[-1] and index < video_rows:
+                    if step == steps[-1] and index in rows[:video_rows]:
                         for history, latents in (("forced", forced), ("free", free)):
                             video = (pipeline.vae.decode_to_pixel(latents, use_cache=False) * .5 + .5).clamp(0, 1)
                             frames = (video[0].permute(0, 2, 3, 1) * 255).cpu()
@@ -188,6 +200,18 @@ def run_worker(args):
     dist.barrier()
     if rank == 0:
         report(output, training_root, steps, rows)
+        if local:
+            records = [json.loads(line) for path in output.glob("rank_*.jsonl") for line in path.read_text().splitlines()]
+            endpoint = []
+            for arm in ("curved", "rectified"):
+                for window, selected in (("first_latent_frame", [r for r in records if r["arm"] == arm and r["frame"] == 0]),
+                                         ("trained_9_frames", [r for r in records if r["arm"] == arm and r["frame"] < 9]),
+                                         ("full_21_frame_rollout", [r for r in records if r["arm"] == arm])):
+                    endpoint.append({"arm": arm, "window": window,
+                        **{key: sum(r[key] for r in selected) / len(selected)
+                           for key in ("forced_mse", "free_mse", "history_gap", "prediction_shift")}})
+            write_csv(output / "one_step_endpoint_errors.csv", endpoint)
+            atomic_json(output / "validation_selection.json", recorded)
     dist.barrier()
     dist.destroy_process_group()
 
@@ -197,6 +221,8 @@ def main():
     parser.add_argument("--training-root", required=True, help="root containing curved/ and rectified/")
     parser.add_argument("--data", required=True)
     parser.add_argument("--output", required=True, help="new directory; never overwrite diagnostics")
+    parser.add_argument("--training-profile", choices=("endpoint_anchored_cd_v1", "local_progressive_cd_all1_v1"), default="endpoint_anchored_cd_v1")
+    parser.add_argument("--validation-rows", default="", help="CPU selection of unseen, prompt-disjoint rows; required for local all1 CD")
     parser.add_argument("--prompt-cache", default="")
     parser.add_argument("--smoke", action="store_true", help="10-step runs: 8 held-out rows, no paper results")
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
@@ -214,6 +240,9 @@ def main():
                "--module", "experiments.iclr.cd_diagnostics", "--worker",
                "--training-root", str(Path(args.training_root).resolve()), "--data", str(Path(args.data).resolve()),
                "--output", str(Path(args.output).resolve())]
+    command += ["--training-profile", args.training_profile]
+    if args.validation_rows:
+        command += ["--validation-rows", str(Path(args.validation_rows).resolve())]
     if args.prompt_cache:
         command += ["--prompt-cache", str(Path(args.prompt_cache).resolve())]
     if args.smoke:

@@ -12,8 +12,15 @@ def summarize(root):
     records = []
     by_cell = {}
     pairing = None
+    first = Path(root) / "cd_original_all1" / "iclr_cell.json"
+    first_cell = json.loads(first.read_text())
+    local = (first_cell.get("cd_pair_controls") or {}).get("iclr_cd_profile") == "local_progressive_cd_all1_v1"
+    schedules = ("all1",) if local else ("all1", "all4")
+    if local and {p.name for p in Path(root).iterdir() if p.is_dir() and p.name.startswith("cd_")} != {
+            "cd_original_all1", "cd_rectified_all1"}:
+        raise ValueError("local progressive CD summaries require exactly two all1 cells; no four-step outputs")
     for arm in ("original", "rectified"):
-        for schedule in ("all1", "all4"):
+        for schedule in schedules:
             name = f"cd_{arm}_{schedule}"
             directory = Path(root) / name
             cell = json.loads((directory / "iclr_cell.json").read_text())
@@ -40,7 +47,7 @@ def summarize(root):
         if len(paths) != 1:
             raise ValueError(f"{arm}: all1/all4 must use the same checkpoint")
     deltas = []
-    for schedule in ("all1", "all4"):
+    for schedule in schedules:
         for metric, value in by_cell["rectified", schedule].items():
             deltas.append({"schedule": schedule, "metric": metric,
                            "rectified_minus_original": value - by_cell["original", schedule][metric]})
@@ -62,6 +69,10 @@ def main():
     write_csv(output / "cd_scores.csv", records)
     write_csv(output / "cd_gains.csv", deltas)
     comparison = {}
+    if {row["cd_profile"] for row in records} == {"local_progressive_cd_all1_v1"}:
+        comparison = {"evaluation_schedule": "all1", "evaluation_cell_count": 2,
+                      "treatment": "high-noise state local rectification, alpha=min(step/100,1)",
+                      "claim": "new experimental treatment; improvement is not guaranteed"}
     if {row["cd_profile"] for row in records} == {"original_adjacent_cd_9f_v1"}:
         from experiments.iclr.cd_original_protocol import historical_comparison, REFERENCE_SHA256
         write_csv(output / "historical_comparison.csv", historical_comparison(records))

@@ -1,0 +1,5 @@
+_base_: cd_original.yaml
+iclr_cd_profile: local_progressive_cd_all1_v1
+local_rectification_point: 1
+local_rectification_ramp_steps: 100
+iclr_cd_eval_schedule: all1

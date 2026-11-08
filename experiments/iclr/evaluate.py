@@ -9,10 +9,11 @@ import sys
 from experiments.iclr.protocol import MAIN_REFERENCE, REPO, atomic_json, sha256_file
 
 
-def cd_cells(original, rectified, config):
+def cd_cells(original, rectified, config, *, training_profile="endpoint_anchored_cd_v1"):
+    schedules = ("all1",) if training_profile == "local_progressive_cd_all1_v1" else ("all1", "all4")
     return [{"name": f"cd_{arm}_{schedule}", "checkpoint": checkpoint,
              "config": config, "method": "framewise", "schedule": schedule}
-            for schedule in ("all1", "all4")
+            for schedule in schedules
             for arm, checkpoint in (("original", original), ("rectified", rectified))]
 
 
@@ -21,7 +22,9 @@ def audit_cd_checkpoints(original, rectified, config_path, *, training_profile="
     from omegaconf import OmegaConf
     from utils.config import load_config
     from experiments.iclr.cd_protocol import validate_checkpoint
-    if training_profile == "original_adjacent_cd_9f_v1":
+    if training_profile == "local_progressive_cd_all1_v1":
+        from experiments.iclr.cd_local_protocol import validate_done_pair, audit_metrics
+    elif training_profile == "original_adjacent_cd_9f_v1":
         from experiments.iclr.cd_original_protocol import validate_done_pair, audit_metrics
     elif training_profile == "endpoint_anchored_cd_v1":
         from experiments.iclr.cd_protocol import validate_done_pair
@@ -36,7 +39,7 @@ def audit_cd_checkpoints(original, rectified, config_path, *, training_profile="
             or config.independent_first_frame or not config.warp_denoising_step):
         raise ValueError("CD evaluation model/history configuration differs from training protocol")
     for path, run in zip(paths, done):
-        if training_profile == "original_adjacent_cd_9f_v1":
+        if training_profile in ("original_adjacent_cd_9f_v1", "local_progressive_cd_all1_v1"):
             audit_metrics(path.parent.parent / "metrics.jsonl", run)
         checkpoint = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
         validate_checkpoint(checkpoint, run, 300)
@@ -130,7 +133,7 @@ def main():
     cd = kind.add_parser("cd", help="original/rectified x all1/all4, no FFE")
     cd.add_argument("--original", required=True)
     cd.add_argument("--rectified", required=True)
-    cd.add_argument("--training-profile", choices=("endpoint_anchored_cd_v1", "original_adjacent_cd_9f_v1"),
+    cd.add_argument("--training-profile", choices=("endpoint_anchored_cd_v1", "original_adjacent_cd_9f_v1", "local_progressive_cd_all1_v1"),
                     default="endpoint_anchored_cd_v1", help="explicitly select and audit the training recipe")
     curve = kind.add_parser("curve", help="final step-200 checkpoint from one frame OR chunk run (legacy command name)")
     curve.add_argument("--index", required=True)
@@ -156,7 +159,7 @@ def main():
         group.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
     if args.kind == "cd":
-        cells = cd_cells(args.original, args.rectified, args.config)
+        cells = cd_cells(args.original, args.rectified, args.config, training_profile=args.training_profile)
     elif args.kind == "curve":
         cells = curve_cells(args.index, args.config, args.reference_step)
     else:
@@ -166,7 +169,10 @@ def main():
     for command in commands:
         print(shlex.join(command))
     if not args.execute:
-        print("DRY RUN: frame/chunk=step200/main_ffe/EMA/Qwen; CD=raw/all1+all4/original; no GPU/model access")
+        if args.kind == "cd":
+            print(f"DRY RUN: {len(cells)} CD cells; schedules={','.join(sorted({c['schedule'] for c in cells}))}; raw/noFFE/original; no GPU/model access")
+        else:
+            print("DRY RUN: frame/chunk=step200/main_ffe/EMA/Qwen; no GPU/model access")
         return
     if args.kind == "cd":
         provenance = audit_cd_checkpoints(args.original, args.rectified, args.config,
