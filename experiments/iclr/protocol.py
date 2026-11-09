@@ -18,7 +18,13 @@ RUN_SPECS = (
 LEGACY_PROFILE = "main_block_ablation_200_v2"
 WINDOW_PROFILE = "matched_window18_s42_v1"
 WINDOW_RUN_SPECS = (("frame_w18_s42", 1, 42), ("chunk_w18_s42", 3, 42))
-PROFILE_RUN_SPECS = {LEGACY_PROFILE: RUN_SPECS, WINDOW_PROFILE: WINDOW_RUN_SPECS}
+SEED2026_PROFILE = "main_block_ablation_s2026_v1"
+SEED2026_RUN_SPECS = (("frame_roff_s2026", 1, 2026), ("chunk_roff_s2026", 3, 2026))
+DMD_ONLY_PROFILE = "main_dmd_only_s2026_v1"
+DMD_ONLY_RUN_SPECS = (("dmd_only_s2026", 1, 2026),)
+FRAME_CHUNK_PROFILES = (LEGACY_PROFILE, WINDOW_PROFILE, SEED2026_PROFILE)
+PROFILE_RUN_SPECS = {LEGACY_PROFILE: RUN_SPECS, WINDOW_PROFILE: WINDOW_RUN_SPECS,
+                     SEED2026_PROFILE: SEED2026_RUN_SPECS, DMD_ONLY_PROFILE: DMD_ONLY_RUN_SPECS}
 ARM_FIELDS = {"experiment_id", "num_frame_per_block", "r1_weight", "r2_weight", "seed"}
 RUNTIME_FIELDS = {"logdir", "resume_ckpt", "config_name", "wandb_save_dir"}
 MAIN_REFERENCE = REPO / "experiments/iclr/configs/main_reference.yaml"
@@ -73,6 +79,7 @@ def validate_config(config):
     if profile not in PROFILE_RUN_SPECS:
         raise ValueError(f"unknown ICLR profile: {profile!r}")
     matched_window = profile == WINDOW_PROFILE
+    dmd_only = profile == DMD_ONLY_PROFILE
     required = {
         "trainer": "iclr", "randomize_seed": False,
         "iclr_profile": profile, "iclr_stop_condition": "fixed_steps",
@@ -85,11 +92,16 @@ def validate_config(config):
         "rank0_preload_generator_ckpt": True,
         "rank0_preload_resume_ckpt": True,
     }
+    if dmd_only:
+        required.update(gan_g_weight=0.0, gan_d_weight=0.0, iclr_eval_schedule="ffe",
+                        iclr_eval_weight_source="generator", iclr_eval_samples_per_prompt=1)
     for key, value in required.items():
         if c.get(key) != value:
             raise ValueError(f"ICLR requires {key}={value!r}, got {c.get(key)!r}")
     reference = config_dict(OmegaConf.load(MAIN_REFERENCE))
     permitted = REFERENCE_RUNTIME_FIELDS | ({"gradient_num_blocks"} if matched_window else set())
+    if dmd_only:
+        permitted |= {"gan_g_weight", "gan_d_weight"}
     for key, value in reference.items():
         if key not in permitted and c.get(key) != value:
             raise ValueError(f"main reference setting changed: {key}; expected {value!r}, got {c.get(key)!r}")
@@ -120,7 +132,7 @@ def validate_config(config):
     if c.get("iclr_mode") not in ("formal", "smoke"):
         raise ValueError("explicit formal/smoke mode required")
     if c["iclr_mode"] == "formal" and c["max_steps"] != reference["max_steps"]:
-        raise ValueError("formal frame/chunk runs must stop at exactly 200 iterations")
+        raise ValueError("formal runs must stop at exactly 200 iterations")
     if c["iclr_mode"] == "smoke" and c["max_steps"] != 10:
         raise ValueError("smoke must cover exactly 10 iterations")
     if "iclr_budget_seconds" in c or "iclr_save_fractions" in c:

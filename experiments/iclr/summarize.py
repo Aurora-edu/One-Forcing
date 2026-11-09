@@ -5,7 +5,8 @@ import json
 from pathlib import Path
 import statistics
 
-from experiments.iclr.protocol import RUN_SPECS, LEGACY_PROFILE, WINDOW_PROFILE, PROFILE_RUN_SPECS, atomic_json
+from experiments.iclr.protocol import (RUN_SPECS, LEGACY_PROFILE, WINDOW_PROFILE,
+    SEED2026_PROFILE, PROFILE_RUN_SPECS, atomic_json)
 from experiments.rebuttal.consolidate_results import load_vbench_results, official_totals
 
 EXPECTED_CELLS = {
@@ -43,6 +44,11 @@ def collect_rows(root, *, profile=LEGACY_PROFILE):
                 or cell.get("gradient_num_frames") != 18 or cell.get("effective_gradient_frames") != 18
                 or cell.get("generator_updates") != 40 or cell.get("critic_updates") != 200):
             raise ValueError("window-18 summary requires matching actual gradient frames and update counts")
+        if profile == SEED2026_PROFILE and (cell.get("gradient_num_blocks") != 17
+                or cell.get("gradient_num_frames") != 0
+                or cell.get("effective_gradient_frames") != (17 if cell["method"] == "framewise" else 21)
+                or cell.get("generator_updates") != 40 or cell.get("critic_updates") != 200):
+            raise ValueError("seed-2026 summary requires the original gradient windows and update counts")
         pairing = (cell["manifest_sha256"], cell["prompt_sha256"], cell["full_info_sha256"], cell["rewrite_sha256"],
                    cell["samples_per_prompt"], cell["max_steps"])
         if protocol is None:

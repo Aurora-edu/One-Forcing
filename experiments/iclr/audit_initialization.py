@@ -3,10 +3,12 @@ import argparse
 import json
 from pathlib import Path
 
-from experiments.iclr.protocol import LEGACY_PROFILE, PROFILE_RUN_SPECS
+from experiments.iclr.protocol import LEGACY_PROFILE, PROFILE_RUN_SPECS, FRAME_CHUNK_PROFILES
 
 
 def audit(root, expected_runs=None, *, profile=LEGACY_PROFILE):
+    if profile not in FRAME_CHUNK_PROFILES:
+        raise ValueError("DMD/GAN pairs require experiments.iclr.audit_gan_pair")
     specs = PROFILE_RUN_SPECS[profile]
     expected_runs = len(specs) if expected_runs is None else expected_runs
     if expected_runs != len(specs):
@@ -38,7 +40,7 @@ def audit(root, expected_runs=None, *, profile=LEGACY_PROFILE):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runs", required=True)
-    parser.add_argument("--profile", choices=tuple(PROFILE_RUN_SPECS), default=LEGACY_PROFILE)
+    parser.add_argument("--profile", choices=FRAME_CHUNK_PROFILES, default=LEGACY_PROFILE)
     parser.add_argument("--expected-runs", type=int, default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()

@@ -53,7 +53,11 @@ def prepare_inputs(root, samples):
 
 
 def conditions(args):
-    return ("original", "qwen") if args.conditioning == "paired" else ("original",)
+    if args.conditioning == "paired":
+        return ("original", "qwen")
+    if args.conditioning not in ("original", "qwen"):
+        raise ValueError("conditioning must be original, qwen, or paired")
+    return (args.conditioning,)
 
 
 def command_for_condition(args, condition):
@@ -149,7 +153,7 @@ def main():
     parser.add_argument("--method", choices=("framewise", "chunkwise"), default="framewise")
     parser.add_argument("--schedule", choices=("all1", "ffe", "all4", "main_ffe"), default="main_ffe")
     parser.add_argument("--weight-source", choices=("generator", "generator_ema"), default="generator_ema")
-    parser.add_argument("--conditioning", choices=("original", "paired"), default="paired")
+    parser.add_argument("--conditioning", choices=("original", "qwen", "paired"), default="paired")
     parser.add_argument("--samples-per-prompt", type=int, choices=(1, 5), default=1)
     parser.add_argument("--output", required=True)
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")

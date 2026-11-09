@@ -1,4 +1,5 @@
 """CPU fixtures for prompt comparisons; never measured video results."""
+import hashlib
 import json
 import subprocess
 import sys
@@ -7,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 from experiments.iclr.prompt_ablation import (
-    command_for_condition, expected_intent, input_payloads, prepare_inputs, summarize,
+    command_for_condition, conditions, expected_intent, input_payloads, prepare_inputs, summarize,
 )
 from experiments.iclr.protocol import REPO
 from experiments.rebuttal.consolidate_results import NORMALIZE_DIC
@@ -82,6 +83,10 @@ def test_prompt_summary_audits_actual_exports_and_score_protocol(tmp_path):
     args.conditioning = "original"
     assert len(summarize(args)["scores"]) == 1
     assert summarize(args)["gains"] == []
+    args.conditioning = "qwen"
+    result = summarize(args)
+    assert [row["conditioning"] for row in result["scores"]] == ["qwen"]
+    assert result["gains"] == []
     args.conditioning = "paired"
     scoring_path = root / "qwen/vbench/qwen_protocol.json"
     scoring["samples_per_prompt"] = 5
@@ -104,4 +109,25 @@ def test_prompt_cli_dry_run_does_not_need_assets_or_launch_jobs(tmp_path):
         cwd=REPO, capture_output=True, text=True, check=True)
     assert "--name original" in result.stdout and "--name qwen" in result.stdout
     assert "evaluation only, no training/GPU access" in result.stdout
+    assert not output.exists()
+
+
+def test_qwen_only_preserves_paper_gan_ablation_sampling(tmp_path):
+    from experiments.rebuttal.audit_paired_noema_vbench import resolved_config_sha256
+    historical = json.loads((REPO / "experiments/rebuttal/results/final_metrics.json").read_text())[
+        "reviewer_runbook_experiments"]["dmd_only_step200_full16"]["pairing"]
+    payloads = input_payloads(1)
+    assert hashlib.sha256(payloads["original.jsonl"].encode()).hexdigest() == historical["manifest_sha256"]
+    assert resolved_config_sha256(REPO / "experiments/rebuttal/configs/eval_ffe.yaml") == historical["resolved_config_sha256"]
+    args = make_args(tmp_path)
+    args.conditioning = "qwen"
+    assert conditions(args) == ("qwen",)
+    output = tmp_path / "absent"
+    result = subprocess.run([sys.executable, "-m", "experiments.iclr.prompt_ablation",
+        "--checkpoint", "/missing/paper_step200.pt", "--output", str(output),
+        "--conditioning", "qwen", "--weight-source", "generator", "--schedule", "ffe",
+        "--samples-per-prompt", "1", "--dry-run"], cwd=REPO, capture_output=True, text=True, check=True)
+    assert "--name qwen" in result.stdout and "--name original" not in result.stdout
+    assert "--schedule ffe" in result.stdout and "--require_no_ema" in result.stdout
+    assert "--samples_per_prompt 1" in result.stdout and "--extended_prompt_path" in result.stdout
     assert not output.exists()

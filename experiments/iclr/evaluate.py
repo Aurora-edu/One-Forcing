@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from experiments.iclr.protocol import (MAIN_REFERENCE, REPO, LEGACY_PROFILE, WINDOW_PROFILE,
+    SEED2026_PROFILE, FRAME_CHUNK_PROFILES, effective_gradient_frames,
     atomic_json, sha256_file, validate_config, resume_signature)
 
 
@@ -55,24 +56,25 @@ def curve_cells(index, config, reference_step=200):
     cells = []
     for line in Path(index).read_text().splitlines():
         row = json.loads(line)
-        if (row.get("profile") not in (LEGACY_PROFILE, WINDOW_PROFILE) or row["schedule"] != "all1"
+        if (row.get("profile") not in FRAME_CHUNK_PROFILES or row["schedule"] != "all1"
                 or row.get("stop_condition") != "fixed_steps"):
             raise ValueError("matched curve requires main-aligned fixed-step checkpoints; regenerate old configurations")
         if row["step"] != reference_step:
             continue
-        if row["profile"] == WINDOW_PROFILE:
+        if row["profile"] in (WINDOW_PROFILE, SEED2026_PROFILE):
             from utils.config import load_config
             cfg = load_config(str(config))
             validate_config(cfg)
             expected_method = "framewise" if cfg.num_frame_per_block == 1 else "chunkwise"
-            if (cfg.iclr_profile != WINDOW_PROFILE or cfg.iclr_mode != "formal"
+            if (cfg.iclr_profile != row["profile"] or cfg.iclr_mode != "formal"
                     or row["experiment_id"] != cfg.experiment_id or row["method"] != expected_method
-                    or row["seed"] != 42 or row.get("gradient_num_blocks") != 0
-                    or row.get("gradient_num_frames") != 18 or row.get("effective_gradient_frames") != 18
+                    or row["seed"] != cfg.seed or row.get("gradient_num_blocks") != cfg.gradient_num_blocks
+                    or row.get("gradient_num_frames") != cfg.get("gradient_num_frames", 0)
+                    or row.get("effective_gradient_frames") != effective_gradient_frames(cfg)
                     or row.get("mode") != "formal" or row.get("max_steps") != 200
                     or row.get("generator_updates") != 40 or row.get("critic_updates") != 200
                     or row.get("r1_weight") != 0 or row.get("r2_weight") != 0):
-                raise ValueError("window-18 endpoint/config metadata mismatch")
+                raise ValueError("frame/chunk endpoint/config metadata mismatch")
         initial = row["step"] == 0
         if not initial and "generator_ema" not in row["available_weights"]:
             raise ValueError("EMA is not initialized at this timepoint; do not silently use raw weights")
@@ -90,7 +92,7 @@ def curve_cells(index, config, reference_step=200):
             "mode": row["mode"], "experiment_id": row["experiment_id"],
             "max_steps": row["max_steps"], "stop_condition": row["stop_condition"],
             "milestones": row["milestones"]})
-        if row["profile"] == WINDOW_PROFILE:
+        if row["profile"] in (WINDOW_PROFILE, SEED2026_PROFILE):
             cells[-1].update({key: row[key] for key in
                              ("gradient_num_blocks", "gradient_num_frames", "effective_gradient_frames")})
     if len({cell["name"] for cell in cells}) != len(cells):
@@ -103,11 +105,14 @@ def curve_cells(index, config, reference_step=200):
 
 
 def audit_window_checkpoint(cell):
-    """Check the saved training protocol before any new window-pair export."""
+    """Check the saved training protocol before a window/seed-pair export."""
     import torch
     from utils.config import load_config
     config = load_config(str(cell["config"]))
     validate_config(config)
+    if (cell.get("profile") not in (WINDOW_PROFILE, SEED2026_PROFILE)
+            or cell["profile"] != config.iclr_profile):
+        raise ValueError("saved training protocol profile differs from evaluation cell")
     path = Path(cell["checkpoint"])
     complete = json.loads((path.parent / "complete.json").read_text())
     if (complete.get("schema_version") != 3 or complete.get("world_size") != 8
@@ -116,13 +121,13 @@ def audit_window_checkpoint(cell):
             or complete["clock"]["generator_updates"] != 40
             or complete["clock"]["critic_updates"] != 200
             or complete["files"].get("model.pt") != path.stat().st_size):
-        raise ValueError("window-18 saved training protocol differs from evaluation cell")
+        raise ValueError("saved training protocol differs from evaluation cell")
     payload = torch.load(path, weights_only=True, mmap=True, map_location="cpu")
     if (payload.get("step") != 200 or "generator_ema" not in payload
             or not payload["generator_ema"]
             or payload.get("experiment_metadata") != {
-                "profile": WINDOW_PROFILE, "mode": "formal", "contains_generator_ema": True}):
-        raise ValueError("window-18 evaluation requires the actual step-200 EMA checkpoint")
+                "profile": config.iclr_profile, "mode": "formal", "contains_generator_ema": True}):
+        raise ValueError("pair evaluation requires the actual step-200 EMA checkpoint")
 
 
 def validate_manifest(path, prompt_path, *, expected_prompts=944):
@@ -239,7 +244,7 @@ def main():
     for cell, command in zip(cells, commands):
         if not Path(cell["checkpoint"]).is_file():
             raise FileNotFoundError(cell["checkpoint"])
-        if cell.get("profile") == WINDOW_PROFILE:
+        if cell.get("profile") in (WINDOW_PROFILE, SEED2026_PROFILE):
             if not os.environ.get("TMUX"):
                 raise RuntimeError("long evaluations require an independent tmux session")
             audit_window_checkpoint(cell)

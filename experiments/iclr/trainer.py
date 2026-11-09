@@ -118,6 +118,10 @@ class ICLRTrainer(Trainer):
                 "initialization_seed": int(config.seed),
                 "experiment_id": str(config.experiment_id),
                 "critic_tensor_sha256": tensor_state_sha256(model.fake_score.state_dict()),
+                # GAN heads live on the wrapper, outside .model. Compare the
+                # common backbone when auditing DMD-only against DMD+GAN.
+                "critic_backbone_tensor_sha256": tensor_state_sha256(model.fake_score.model.state_dict()),
+                "use_gan_branch": bool(model.use_gan_branch),
                 "teacher_model_path": str(Path(config.teacher_model_path).resolve()),
                 "ode_provenance": "UNVERIFIED: content identity does not establish ODE training provenance",
             }

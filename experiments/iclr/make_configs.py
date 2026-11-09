@@ -5,7 +5,7 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-from experiments.iclr.protocol import (LEGACY_PROFILE, WINDOW_PROFILE, PROFILE_RUN_SPECS,
+from experiments.iclr.protocol import (LEGACY_PROFILE, WINDOW_PROFILE, DMD_ONLY_PROFILE, PROFILE_RUN_SPECS,
                                       atomic_json, config_dict, validate_matrix)
 from utils.config import load_config
 
@@ -26,6 +26,12 @@ def make_matrix(base, *, generator_ckpt, teacher, data, prompt_cache, smoke=Fals
         if profile == WINDOW_PROFILE:
             config.gradient_num_blocks = 0
             config.gradient_num_frames = 18
+        if profile == DMD_ONLY_PROFILE:
+            config.gan_g_weight = 0.0
+            config.gan_d_weight = 0.0
+            config.iclr_eval_schedule = "ffe"
+            config.iclr_eval_weight_source = "generator"
+            config.iclr_eval_samples_per_prompt = 1
         configs.append(config)
     validate_matrix(configs)
     return configs
@@ -35,7 +41,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default=str(Path(__file__).parent / "configs/base.yaml"))
     parser.add_argument("--profile", choices=tuple(PROFILE_RUN_SPECS), default=LEGACY_PROFILE,
-                        help="explicitly select the legacy 4 runs or the new 2-run seed-42/window-18 pair")
+                        help="select frame/chunk matrix or the single seed-2026 DMD-only companion")
     parser.add_argument("--generator-ckpt", required=True)
     parser.add_argument("--teacher", default="/data/fengjiaqi/wan_models/Wan2.1-T2V-14B")
     parser.add_argument("--data", default="/data/fengjiaqi/One-Forcing/mixkit_latents_lmdb")
@@ -52,7 +58,9 @@ def main():
                       "initialization_status": "UNVERIFIED: explicit raw checkpoint must be audited; filename is not evidence of ODE provenance",
                       "max_steps": configs[0].max_steps, "stop_condition": "fixed_steps",
                       "profile": configs[0].iclr_profile,
-                      "evaluation": "step 200 only; EMA/main_ffe/pinned Qwen; actual training costs recorded"}, indent=2))
+                      "evaluation": {"step": 200, "weights": configs[0].iclr_eval_weight_source,
+                          "schedule": configs[0].iclr_eval_schedule, "conditioning": "pinned_qwen",
+                          "samples_per_prompt": configs[0].iclr_eval_samples_per_prompt}}, indent=2))
     if args.dry_run:
         return
     root = Path(args.output)
