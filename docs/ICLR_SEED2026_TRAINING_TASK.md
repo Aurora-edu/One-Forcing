@@ -1,5 +1,7 @@
 # 本轮训练机入口：seed2026 三组训练、四组评测及 seed0 日志上传
 
+> 历史交接。新一轮 frame/chunk 已改为[官方原代码、step200 raw 对照](ICLR_OFFICIAL_FRAME_CHUNK_TASK.md)，不要用下文启动新的 frame/chunk 实验；其它独立任务按各自已确认的范围执行。
+
 本文件对应最新确认的追加任务。代码位于 `Aurora-edu/One-Forcing` 的 `ICLR` 分支；使用交接prompt指定的提交或包含该提交的后续版本。保留训练机已有修改及其它session进程，不执行破坏性reset。先读取本文件，再按下面两份详细说明执行。旧总任务文件中的seed42/window18等计划不是本轮执行清单；独立CD任务仍由其原会话管理。
 
 ## 先补交旧 seed0 的训练曲线数据
