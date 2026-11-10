@@ -1,5 +1,7 @@
 # 1000步端点回归实验：将 all1 评测替换为 FFE
 
+本轮总入口为 [CD + 官方 seed42 frame/chunk 任务](ICLR_CD_FFE_AND_OFFICIAL_S42_TASK.md)。用户已授权：找不到既有1000步权重就按 [重训说明](ICLR_CURVATURE_1000_RETRAIN_TASK.md) 重训，再完成这里的两组 FFE 评测。文末 seed0 日志已交付，本轮无需重新收集。
+
 本任务对应7月旧实验 `curvature_causal_intervention`，使用
 `experiments/rebuttal/train_curvature_ode.py` 和
 `experiments/rebuttal/configs/train_curvature_ode.yaml`。它不是300步相邻 CD，
@@ -30,9 +32,11 @@ teacher forcing。不得增加相邻 CD/EMA 目标、额外损失或最高噪声
 
 迁移后目录应包含 `training/{curved,rectified}/checkpoint_model_001000/model.pt`、
 `manifests/vbench_prompts.txt`、`manifests/vbench_single_sample_seed0.jsonl`。
-本地仓库只归档了历史分数，没有这两份权重。若训练机也没有，先核实原初始化和
-轨迹数据来源，再用上述原训练入口重建；不得把11月的300步权重当作替代品，或
-擅自用另一份初始化声称只改了FFE。重建训练须独立tmux，每组观察至少前10步。
+本地仓库只归档了历史分数，没有这两份权重。若训练机也没有，按重训说明核实
+初始化和轨迹数据并重建，不以旧成品权重丢失为阻塞理由。若历史输入身份无法
+闭环，使用已核实的共享初始化/数据做新的配对重训并如实标记；不得把300步
+权重当作替代品，也不能将新训练称为旧权重只改FFE。重建训练须独立tmux，
+每组观察至少前10步。
 
 沿用训练机已验证的推理环境和 VBench wrapper。在仓库根目录设置真实路径后，
 先用默认 dry-run 核对命令：
