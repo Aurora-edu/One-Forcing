@@ -1,4 +1,4 @@
-# 官方原代码 frame/chunk 对照：seed 2026、step200、raw
+# 官方原代码 frame/chunk 对照：seed 42、step200、raw
 
 用户已确认：**官方代码完全零修改，两组改评 raw 权重。** 本文件替代旧的 `ICLR_SEED2026_PAIR_TASK.md`，需要独立重训 frame 和 chunk；不能复用此前 ICLRTrainer 的权重。
 
@@ -10,7 +10,7 @@
 |---|---|---|
 | 原始训练 YAML | 官方 config.yaml | 相同 |
 | 唯一组间配置差异 | num_frame_per_block=1 | num_frame_per_block=3 |
-| training seed | 2026，非零固定值 | 相同 |
+| training seed | 42，非零固定值 | 相同 |
 | 预算 | 200 iterations，40 G / 200 critic | 相同 |
 | gradient_num_blocks | 17 | 17 |
 | 实际反传 latent 帧数 | 17 | 21，官方代码裁剪 |
@@ -19,7 +19,7 @@
 | 正式评测 | step200 raw、Qwen 944×5、16维 VBench | 相同 |
 | 官方首块增强 | 第一帧4步，后续每帧1步 | 第一块3帧4步，后续每块1步 |
 
-官方 YAML 的 seed=0 表示随机抽 seed；为配对沿用用户确认的非零 seed2026。这是两边相同的显式配置覆盖，不修改随机数实现。不改成18帧窗口、不增加正则、不调整EMA、不加训练prompt cache或手动backward/offload开关。训练内部照官方维护EMA，但评测明确只选 `generator` raw。
+官方 YAML 的 seed=0 表示随机抽 seed；按用户最新要求，两组 training seed 均固定为42。这是两边相同的显式配置覆盖，不修改随机数实现。不改成18帧窗口、不增加正则、不调整EMA、不加训练prompt cache或手动backward/offload开关。训练内部照官方维护EMA，但评测明确只选 `generator` raw。评测噪声 seeds 保持原协议。
 
 这个实验比较官方 frame 配方与“仅改 block”的 chunk 配方，包含官方反传窗口和首块长度的联动；不能称为完全隔离有效梯度帧数的比较。只测最终200步，不运行学习曲线。
 
@@ -30,7 +30,7 @@
 ```bash
 source /data/data/cuijiaxing/oneforcing_iclr/tools/env.sh
 export OFFICIAL_ROOT="$R/official_main_c9a2350_frame_chunk"
-export OFFICIAL_PAIR="$R/official_frame_chunk_raw_s2026"
+export OFFICIAL_PAIR="$R/official_frame_chunk_raw_s42"
 export WAN13="$R/assets/wan_models/Wan2.1-T2V-1.3B"
 export VB_RUNNER="$R/tools/vbpy"
 
@@ -39,7 +39,7 @@ export VB_RUNNER="$R/tools/vbpy"
 "$OF_PY" -m experiments.iclr.official_frame_chunk check --pair "$OFFICIAL_PAIR"
 ```
 
-路径可映射到真实训练机位置；ODE_INIT、TEACHER、CLEAN_LMDB、WAN13必须指原资产。prepare 创建隔离 worktree 和两份配置；不会加载模型、查询GPU或启动训练。每次训练和生成前后均按固定 Git 对象逐文件校验官方源码；即使标记 assume-unchanged 也不能绕过校验。两个训练配置除 block 外必须逐项相同。已有目录拒绝覆盖。
+路径可映射到真实训练机位置；ODE_INIT、TEACHER、CLEAN_LMDB、WAN13必须指原资产。prepare 创建隔离 worktree 和两份配置；不会加载模型、查询GPU或启动训练。每次训练和生成前后均按固定 Git 对象逐文件校验官方源码；即使标记 assume-unchanged 也不能绕过校验。两个训练配置除 block 外必须逐项相同。已有目录拒绝覆盖。若此前已生成 seed2026 配置，在新的 `official_frame_chunk_raw_s42` 目录重新执行 prepare。
 
 本机仅做 CPU 验证。B200 沿用已验证的 torch2.7.1/cu128 环境及 VBench wrapper，记录环境版本和已有 wrapper 的源码/hash；这是硬件环境差异，不通过修改官方训练代码解决。若官方入口在该环境下失败，保留报错，不自动退回 ICLRTrainer。
 

@@ -1,6 +1,6 @@
 # 旧 frame/chunk 消融增加 training seed=2026
 
-> 历史任务，已被[官方原代码 frame/chunk 对照](ICLR_OFFICIAL_FRAME_CHUNK_TASK.md)替代。新一轮执行官方零修改训练和推理、seed2026、step200 raw，不再执行下文 ICLRTrainer/EMA 配方。下文保留供旧结果追溯。
+> 历史任务，已被[官方原代码 frame/chunk 对照](ICLR_OFFICIAL_FRAME_CHUNK_TASK.md)替代。新一轮执行官方零修改训练和推理、seed42、step200 raw，不再执行下文 ICLRTrainer/EMA 配方。下文保留供旧结果追溯。
 
 用户要求：在旧 seeds=0/1 的 frame/chunk 消融基础上，只更换 training seed 为2026，其它设置不变。新增两个独立训练 run，沿用 ICLR 训练入口；不切换官方 main 入口，不采用后来 seed=42 的18帧反传窗口。本任务独立于 CD 和旧 seed=0 的 original-prompts 评测。
 

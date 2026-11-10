@@ -24,7 +24,7 @@ from experiments.rebuttal.paper_vbench_protocol import ASSETS, pinned_inputs
 
 OFFICIAL = "c9a2350e8740531562011fc9618e1a928d911ae0"
 ARMS = {"frame": 1, "chunk": 3}
-SEED = 2026
+SEED = 42
 SAMPLES = 5
 
 

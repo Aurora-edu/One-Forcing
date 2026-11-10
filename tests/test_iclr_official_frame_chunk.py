@@ -27,7 +27,7 @@ def test_only_block_changes_and_official_checkout_is_untouched(pair):
     assert {k for k in frame if frame[k] != chunk[k]} == {"num_frame_per_block"}
     original = task.read_yaml(root / "config.yaml")
     assert {k for k in frame if frame[k] != original[k]} == {"seed"}
-    assert frame["trainer"] == "one_forcing" and frame["seed"] == 2026
+    assert frame["trainer"] == "one_forcing" and frame["seed"] == 42
     assert frame["max_steps"] == 200 and frame["gradient_num_blocks"] == 17
     assert task.git(root, "status", "--porcelain") == ""
     assert task.check(output)["weight_source"] == "generator"
