@@ -1,6 +1,6 @@
-# 本轮训练机任务：CD 1000步权重补测 FFE + 官方 frame/chunk seed42
+# 本轮训练机任务：CD FFE、官方 frame/chunk seed42、官方300步 GAN消融
 
-本文件是本轮唯一总入口，代码分支为 `Aurora-edu/One-Forcing:ICLR`。用户已确认：CD 优先复用已有1000步权重，**找不到就按原配方重训，再评 FFE**；frame/chunk 使用完全未修改的官方代码，两组 training seed=42、评 raw。不要按旧总任务文件追加实验。
+本文件是本轮唯一总入口，代码分支为 `Aurora-edu/One-Forcing:ICLR`。用户已确认：CD 优先复用已有1000步权重，**找不到就按原配方重训，再评 FFE**；frame/chunk 使用完全未修改的官方代码，两组 training seed=42、评 raw。最新追加 **官方训练和推理代码的DMD+GAN/DMD-only消融，两组各300步**，详见任务三。不要按旧总任务文件追加其它实验。
 
 ## 本轮清单
 
@@ -10,10 +10,12 @@
 | CD Global Rectified | 优先复用；缺失时按1000步配方重训 | step1000 raw | original prompts，944×1，main_ffe |
 | 官方 frame | 独立训练，seed42，200 iterations | step200 raw | Qwen prompts，944×5，官方首块增强 |
 | 官方 chunk | 独立训练，seed42，200 iterations；只改 block=3 | step200 raw | Qwen prompts，944×5，官方首块增强 |
+| 官方 DMD+GAN | 独立训练，seed42，300 iterations；GAN G/D=0.03/0.03 | step300 raw | Qwen prompts，944×5，官方首帧增强 |
+| 官方 DMD-only | 与上一行相同，仅GAN G/D=0/0 | step300 raw | Qwen prompts，944×5，官方首帧增强 |
 
-共 **2–4个新训练 run、4个评测条件、11,328条评测视频**：两份CD权重都可复用时只新增2个训练，CD两组均需重训时为4个。均跑全16维 VBench，只测所列最终点。CD 原有或重训的 training seed 均为2026；frame/chunk 为42。CD 此处指历史 `curvature_controlled_causal_intervention` 的端点回归实验，报告中写明训练目标和 FFE，不能标成纯 all1 相邻 CD。
+完整清单共 **4–6个新训练 run、6个评测条件、20,768条评测视频**：两份CD权重都可复用时为4个训练，CD两组均需重训时为6个；已完成任务只核验交付，不重复运行。新GAN消融单独新增2个300步训练和9440条评测视频。均跑全16维 VBench，只测所列最终点。CD training seed保持2026；frame/chunk和GAN消融为42。CD此处指历史端点回归实验，报告中写明训练目标和FFE，不能标成纯all1相邻CD。
 
-本轮不跑 DMD-only/GAN 新消融、300步 CD、四步 CD 重评或其它 seeds。已交付的 seed0 日志不用再次收集。
+不运行300步CD、四步CD重评或其它seeds。此前frame/chunk仍是200步，不用GAN消融的300步结果替换；已有进程继续运行，不因追加任务而停止。已交付的seed0日志不用再次收集。
 
 ## 接入与准备
 
@@ -27,10 +29,11 @@ export OFFICIAL_PAIR="$R/official_frame_chunk_raw_s42"
 export WAN13="$R/assets/wan_models/Wan2.1-T2V-1.3B"
 
 CUDA_VISIBLE_DEVICES='' "$OF_PY" -m pytest -q \
-  tests/test_curvature_1000_ffe.py tests/test_iclr_official_frame_chunk.py
+  tests/test_curvature_1000_ffe.py tests/test_iclr_official_frame_chunk.py \
+  tests/test_iclr_official_gan_ablation.py
 ```
 
-沿用已验证的 B200 推理/训练环境及 VBench wrapper，归档实际版本、wrapper 源码和 hash。本机上述17项 CPU 检查已通过，包括真实 shell 的配置生成检查；尚未进行真实 Wan/B200 训练或视频生成验证。
+沿用已验证的 B200 推理/训练环境及 VBench wrapper，归档实际版本、wrapper 源码和 hash。本机做CPU检查，包括真实官方shell的配置生成；真实Wan/B200训练与生成验证由训练机执行。
 
 ## 任务一：CD 1000步权重的 FFE 评测
 
@@ -68,10 +71,14 @@ dry-run 应只有两组 raw/step1000 审计、两组 main_ffe 评测和一次汇
 
 独立 tmux 启动每组训练，**每组至少盯到第10步**，检查实际日志中的 seed、loss/梯度和 GPU 状态。训练完成须有各自的 `training.done`，之后只评 step200。实际检查入口固定的16对视频；异常结果保留，不自行换seed、切EMA或延长训练。详细文件中的命令负责启动、监控、评测和汇总，本轮不调用旧的 `experiments.iclr.train`。
 
+## 任务三：官方300步 GAN 消融
+
+执行 [官方300步 GAN 消融详细说明](ICLR_OFFICIAL_GAN_300_TASK.md)。两组均framewise、seed42、300 iterations、step300 raw；使用官方原始训练和视频生成代码。GAN组保留0.03/0.03，DMD-only仅将两项权重设0。两组从共享ODE初始化独立训练，不能用200步frame结果或旧seed2026权重充当300步GAN组。各监控至少10步、只评最终点、实际检查固定16对视频。
+
 ## 交付
 
-逐项报告四个条件的完成状态，不省略 CD。汇总分别提供 CD 的 Original/Rectified 及差值、frame/chunk 及差值；列明 Total/Quality/Semantic 和全部16维，百分制与0–1分数明确区分。
+逐项报告六个条件的完成状态，不省略CD或GAN消融。分别提供CD的Original/Rectified、200步frame/chunk、300步GAN/DMD-only及各自差值；列明Total/Quality/Semantic和全部16维，百分制与0–1分数明确区分。
 
-轻量结果包包含本轮实际 Git commit、命令、配置、环境/资产来源和 hash、所有新训练的完整日志与step10记录、CD权重复用或重训的来源记录、四条件原始VBench JSON与export/protocol、汇总，以及固定视频样例和检查记录。必须实际查看生成视频；若工具只能抽帧，写清已检查的范围并将完整动态检查标为待完成，不能用解码成功代替观看。模型权重、LMDB和全量视频留在训练机，列出路径。
+轻量结果包包含本轮实际Git commit、命令、配置、环境/资产来源和hash、所有新训练的完整日志与step10记录、CD权重复用或重训的来源记录、六条件原始VBench JSON与export/protocol、汇总，以及固定视频样例和检查记录。必须实际查看生成视频；若工具只能抽帧，写清已检查的范围并将完整动态检查标为待完成，不能用解码成功代替观看。模型权重、LMDB和全量视频留在训练机，列出路径。
 
 使用训练机已有方式将轻量结果包上传到之前的 Google Drive 结果位置，保持原共享范围，返回可访问链接及压缩包 SHA256。上传不可用时给出本地包路径、hash和具体原因，不声称已上传。任何缺失项或失败阶段单列，保留日志；其余独立任务继续完成。

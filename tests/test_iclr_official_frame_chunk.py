@@ -31,6 +31,12 @@ def test_only_block_changes_and_official_checkout_is_untouched(pair):
     assert frame["max_steps"] == 200 and frame["gradient_num_blocks"] == 17
     assert task.git(root, "status", "--porcelain") == ""
     assert task.check(output)["weight_source"] == "generator"
+    # Previously prepared frame/chunk manifests did not have a profile field.
+    manifest_path = output / "pair.json"
+    manifest = json.loads(manifest_path.read_text()); manifest.pop("profile")
+    manifest_path.write_text(json.dumps(manifest))
+    assert task.check(output, required_profile=task.FRAME_PROFILE)["steps"] == 200
+    assert "checkpoint_model_000200" in " ".join(task.export_commands(output, "frame", sys.executable)[0])
 
 
 def test_source_byte_audit_rejects_hidden_modification(pair):
@@ -146,7 +152,7 @@ def test_external_worker_records_step10_completion_and_rejects_mismatched_receip
             seen.append((command, kwargs))
             final = output/'runs/frame/checkpoint_model_000200/model.pt'
             final.parent.mkdir()
-            torch.save({'generator':state}, final)
+            torch.save({'generator':state, 'step':200}, final)
             self.stdout = iter(repr(row)+'\n' for row in log_rows(200))
         def wait(self): return 0
         def poll(self): return 0

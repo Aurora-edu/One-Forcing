@@ -1,4 +1,4 @@
-"""Frame/chunk pair executed by an untouched, pinned official checkout.
+"""Paired experiments executed by an untouched, pinned official checkout.
 
 This is an external launcher/auditor, not a Trainer subclass. GPU operations
 require --execute and run in tmux; prepare/check/plans use CPU only.
@@ -26,6 +26,45 @@ OFFICIAL = "c9a2350e8740531562011fc9618e1a928d911ae0"
 ARMS = {"frame": 1, "chunk": 3}
 SEED = 42
 SAMPLES = 5
+FRAME_PROFILE = "official_frame_chunk_s42_200"
+GAN_PROFILE = "official_gan_s42_300"
+
+
+def profile_settings(profile=FRAME_PROFILE):
+    if profile == FRAME_PROFILE:
+        return {"arms": ARMS, "steps": 200, "differences": ["num_frame_per_block"],
+                "entrypoint": "experiments.iclr.official_frame_chunk",
+                "comparison": "frame_minus_chunk_percentage_points"}
+    if profile == GAN_PROFILE:
+        return {"arms": {"dmd_gan": 1, "dmd_only": 1}, "steps": 300,
+                "differences": ["gan_g_weight", "gan_d_weight"],
+                "entrypoint": "experiments.iclr.official_gan_ablation",
+                "comparison": "gan_minus_dmd_percentage_points"}
+    raise ValueError(f"Unknown official experiment profile: {profile}")
+
+
+def pair_settings(pair):
+    manifest = json.loads((Path(pair) / "pair.json").read_text())
+    return profile_settings(manifest.get("profile", FRAME_PROFILE))
+
+
+def training_config(original, arm, profile):
+    spec = profile_settings(profile)
+    cfg = dict(original, seed=SEED, num_frame_per_block=spec["arms"][arm])
+    if profile == GAN_PROFILE:
+        cfg.update(max_steps=300)
+        if arm == "dmd_only":
+            cfg.update(gan_g_weight=0.0, gan_d_weight=0.0)
+    return cfg
+
+
+def protocol_fields(profile):
+    spec = profile_settings(profile)
+    return {"official_commit": OFFICIAL, "seed": SEED, "steps": spec["steps"],
+            "only_arm_difference": spec["differences"], "weight_source": "generator",
+            "samples_per_prompt": SAMPLES,
+            "effective_gradient_frames": {arm: 17 if block == 1 else 21 for arm, block in spec["arms"].items()},
+            "first_block_ffe_latent_frames": spec["arms"]}
 
 
 def git(root, *args):
@@ -65,7 +104,8 @@ def split_prompts(prompts, rewrites):
              "rewrites": rewrites[i * 118:(i + 1) * 118]} for i in range(8)]
 
 
-def prepare(root, pair):
+def prepare(root, pair, profile=FRAME_PROFILE):
+    spec = profile_settings(profile)
     root, pair = Path(root).resolve(), Path(pair).resolve()
     if pair.exists():
         raise FileExistsError(f"Pair directory exists: {pair}")
@@ -74,8 +114,8 @@ def prepare(root, pair):
     original = official_source(root)
     pair.mkdir(parents=True)
     (pair / "configs").mkdir()
-    for arm, block in ARMS.items():
-        cfg = dict(original, seed=SEED, num_frame_per_block=block)
+    for arm in spec["arms"]:
+        cfg = training_config(original, arm, profile)
         OmegaConf.save(OmegaConf.create(cfg), pair / "configs" / f"{arm}.yaml")
         # Same warm-up as official scripts/infer.sh, with native block size.
         cfg["first_frame_denoising_step_list"] = [1000, 750, 500, 250]
@@ -85,33 +125,31 @@ def prepare(root, pair):
     for shard in split_prompts(prompts, rewrites):
         for kind in ("prompts", "rewrites"):
             (pair / "inputs" / f"{kind}_{shard['shard']}.txt").write_text("\n".join(shard[kind]) + "\n")
-    manifest = {"schema_version": 1, "official_commit": OFFICIAL, "official_root": str(root),
-                "seed": SEED, "steps": 200, "only_arm_difference": ["num_frame_per_block"],
-                "weight_source": "generator", "samples_per_prompt": SAMPLES,
-                "training_configs": {arm: sha256_file(pair / "configs" / f"{arm}.yaml") for arm in ARMS},
-                "inference_configs": {arm: sha256_file(pair / "configs" / f"{arm}_infer.yaml") for arm in ARMS},
+    manifest = {"schema_version": 1, "profile": profile, "official_root": str(root),
+                **protocol_fields(profile),
+                "training_configs": {arm: sha256_file(pair / "configs" / f"{arm}.yaml") for arm in spec["arms"]},
+                "inference_configs": {arm: sha256_file(pair / "configs" / f"{arm}_infer.yaml") for arm in spec["arms"]},
                 "input_hashes": {p.name: sha256_file(p) for p in sorted((pair / "inputs").iterdir())},
                 "full_info_sha256": sha256_file(ASSETS / "VBench_full_info.json"),
-                "effective_gradient_frames": {"frame": 17, "chunk": 21},
-                "first_block_ffe_latent_frames": ARMS,
                 "rng_protocol": "official exporter, 8 contiguous prompt shards; initial seed=5*global_prompt_index+sample; intermediate noise uses each shard's global RNG"}
     atomic_json(pair / "pair.json", manifest)
     return check(pair)
 
 
-def check(pair):
+def check(pair, required_profile=None):
     pair = Path(pair).resolve()
     manifest = json.loads((pair / "pair.json").read_text())
+    profile = manifest.get("profile", FRAME_PROFILE)
+    spec = profile_settings(profile)
+    if required_profile is not None and profile != required_profile:
+        raise ValueError(f"This entry requires {required_profile}, found {profile}")
     root = Path(manifest["official_root"])
     original = official_source(root)
-    fixed = {"official_commit": OFFICIAL, "seed": SEED, "steps": 200,
-             "only_arm_difference": ["num_frame_per_block"], "weight_source": "generator",
-             "samples_per_prompt": SAMPLES, "effective_gradient_frames": {"frame": 17, "chunk": 21},
-             "first_block_ffe_latent_frames": ARMS}
+    fixed = protocol_fields(profile)
     if any(manifest.get(k) != v for k, v in fixed.items()):
         raise ValueError("Pair protocol changed")
-    for arm, block in ARMS.items():
-        expected = dict(original, seed=SEED, num_frame_per_block=block)
+    for arm in spec["arms"]:
+        expected = training_config(original, arm, profile)
         for suffix, field in (("", "training_configs"), ("_infer", "inference_configs")):
             cfg = pair / "configs" / f"{arm}{suffix}.yaml"
             if suffix:
@@ -140,10 +178,13 @@ def train_command(pair, arm, python, assets):
 
 
 def export_commands(pair, arm, python):
+    spec = pair_settings(pair)
+    if arm not in spec["arms"]:
+        raise ValueError(f"Unknown arm for this pair: {arm}")
     commands = []
     for i in range(8):
         commands.append([python, "scripts/export_videos.py", "--config_path", str(pair / "configs" / f"{arm}_infer.yaml"),
-            "--checkpoint_path", str(pair / "runs" / arm / "checkpoint_model_000200/model.pt"),
+            "--checkpoint_path", str(pair / "runs" / arm / f"checkpoint_model_{spec['steps']:06d}/model.pt"),
             "--prompt_path", str(pair / "inputs" / f"prompts_{i}.txt"),
             "--extended_prompt_path", str(pair / "inputs" / f"rewrites_{i}.txt"),
             "--output_folder", str(pair / "eval" / arm / "shards" / str(i)),
@@ -178,9 +219,40 @@ def monitor(pair, arm, min_step=10):
             "critic_updates": len(rows), "finite": True}
 
 
-def raw_checkpoint(path, initialization):
+def audit_gan_losses(pair, arm):
+    """Inspect the official logs, without adding hooks to official training."""
+    rows = metric_records(Path(pair) / "runs" / arm / "train.log")
+    g_rows = [row for row in rows if "generator_loss" in row]
+    if not rows or not g_rows:
+        raise ValueError("Missing official GAN ablation metrics")
+    for row in rows:
+        for key in ("gan_d_loss", "fake_score_loss", "r1_loss", "r2_loss"):
+            if key not in row:
+                raise ValueError(f"Missing {key} at step {row['step']}")
+        if row["r1_loss"] != 0 or row["r2_loss"] != 0:
+            raise ValueError("The GAN ablation requires R1/R2 disabled")
+    if any("gan_g_loss" not in row or "dmd_loss" not in row for row in g_rows):
+        raise ValueError("Missing generator objective terms")
+    g = [row["gan_g_loss"] for row in g_rows]
+    d = [row["gan_d_loss"] for row in rows]
+    if arm == "dmd_only":
+        if any(value != 0 for value in g + d):
+            raise ValueError("DMD-only has nonzero GAN loss")
+    elif arm == "dmd_gan":
+        if not any(value > 0 for value in g) or not any(value > 0 for value in d):
+            raise ValueError("DMD+GAN has no observed adversarial signal")
+    else:
+        raise ValueError(f"Unknown GAN arm: {arm}")
+    return {"generator_loss_records": len(g), "critic_loss_records": len(d),
+            "gan_g_loss_range": [min(g), max(g)], "gan_d_loss_range": [min(d), max(d)],
+            "r1_r2_zero": True}
+
+
+def raw_checkpoint(path, initialization, expected_step=None):
     import torch
     payload = torch.load(path, map_location="cpu", weights_only=True, mmap=True)
+    if expected_step is not None and payload.get("step") != expected_step:
+        raise ValueError(f"Raw checkpoint step does not match {expected_step}")
     reference = torch.load(initialization, map_location="cpu", weights_only=True, mmap=True)["generator"]
     state = payload.get("generator")
     if not isinstance(state, dict) or not state or state.keys() != reference.keys():
@@ -246,6 +318,7 @@ def lock_assets(pair, root, assets):
 def worker_train(args):
     pair = Path(args.pair).resolve()
     manifest = check(pair)
+    steps = manifest["steps"]
     root = Path(manifest["official_root"])
     assets = assets_for(args)
     require_idle(parse_gpus(args.gpus))
@@ -274,6 +347,8 @@ def worker_train(args):
                 log.write(line); log.flush()
                 if "'step': 10," in line and "'critic_loss':" in line:
                     atomic_json(run / "step10_health.json", monitor(pair, args.arm, 10))
+                    if manifest.get("profile") == GAN_PROFILE:
+                        atomic_json(run / "step10_objectives.json", audit_gan_losses(pair, args.arm))
                     print(f"{args.arm}: step 10 finite; inspect {run / 'train.log'}", flush=True)
             code = process.wait()
         finally:
@@ -281,16 +356,19 @@ def worker_train(args):
                 process.terminate(); process.wait()
     if code:
         raise RuntimeError(f"Official training exited {code}; original logs retained")
-    health = monitor(pair, args.arm, 200)
-    if health["last_step"] != 200 or not (run / "step10_health.json").is_file():
-        raise ValueError("Expected exactly 200 steps and a step-10 health record")
+    health = monitor(pair, args.arm, steps)
+    if health["last_step"] != steps or not (run / "step10_health.json").is_file():
+        raise ValueError(f"Expected exactly {steps} steps and a step-10 health record")
     check(pair)
-    audit = raw_checkpoint(run / "checkpoint_model_000200/model.pt", assets["generator"])
+    if manifest.get("profile") == GAN_PROFILE:
+        atomic_json(run / "objective_audit.json", audit_gan_losses(pair, args.arm))
+    audit = raw_checkpoint(run / f"checkpoint_model_{steps:06d}/model.pt", assets["generator"], expected_step=steps)
     atomic_json(run / "training.done", {**health, **audit, "elapsed_seconds": time.monotonic() - started,
                                         "official_commit": OFFICIAL, "seed": SEED})
 
 
 def audit_training(pair, arm, manifest):
+    steps = manifest["steps"]
     run = pair / "runs" / arm
     launch_record = json.loads((run / "launch.json").read_text())
     assets = json.loads((pair / "assets.json").read_text())["paths"]
@@ -305,14 +383,18 @@ def audit_training(pair, arm, manifest):
                        "config_sha256": manifest["training_configs"][arm]}.items():
         if launch_record.get(key) != value:
             raise ValueError(f"Training receipt mismatch: {key}")
-    health = monitor(pair, arm, 200)
+    health = monitor(pair, arm, steps)
     done = json.loads((run / "training.done").read_text())
-    required = {**health, "last_step": 200, "generator_updates": 40, "critic_updates": 200,
+    required = {**health, "last_step": steps, "generator_updates": steps // 5, "critic_updates": steps,
                 "official_commit": OFFICIAL, "seed": SEED, "weight_source": "generator", "use_ema": False}
-    if any(done.get(k) != v for k, v in required.items()) or health["last_step"] != 200:
+    if any(done.get(k) != v for k, v in required.items()) or health["last_step"] != steps:
         raise ValueError("Training completion does not match the official pair")
     if not (run / "step10_health.json").is_file():
         raise ValueError("Missing step-10 health record")
+    if manifest.get("profile") == GAN_PROFILE:
+        objectives = audit_gan_losses(pair, arm)
+        if json.loads((run / "objective_audit.json").read_text()) != objectives:
+            raise ValueError("GAN objective audit differs from actual logs")
     return done
 
 
@@ -324,7 +406,7 @@ def worker_eval(args):
     require_idle(gpus)
     run = pair / "runs" / args.arm
     completed = audit_training(pair, args.arm, manifest)
-    checkpoint = run / "checkpoint_model_000200/model.pt"
+    checkpoint = run / f"checkpoint_model_{manifest['steps']:06d}/model.pt"
     if sha256_file(checkpoint) != completed["checkpoint_sha256"]:
         raise ValueError("Checkpoint changed after training audit")
     output = pair / "eval" / args.arm
@@ -389,8 +471,9 @@ def report(pair):
     from experiments.rebuttal.consolidate_results import load_vbench_results, official_totals
     pair = Path(pair).resolve()
     manifest = check(pair)
+    spec = profile_settings(manifest.get("profile", FRAME_PROFILE))
     rows = []
-    for arm in ARMS:
+    for arm in spec["arms"]:
         done = audit_training(pair, arm, manifest)
         output = pair / "eval" / arm
         exported = json.loads((output / "export.done").read_text())
@@ -411,7 +494,7 @@ def report(pair):
         rows.append({"arm": arm, "scores": scores, "totals": totals,
                      "training_elapsed_seconds": done["elapsed_seconds"]})
     result = {"protocol": manifest, "runs": rows,
-              "frame_minus_chunk_percentage_points": {k: 100 * (rows[0]["totals"][k] - rows[1]["totals"][k]) for k in rows[0]["totals"]},
+              spec["comparison"]: {k: 100 * (rows[0]["totals"][k] - rows[1]["totals"][k]) for k in rows[0]["totals"]},
               "note": "One paired training seed; raw weights. Do not merge with historical EMA results. Visual review remains mandatory."}
     atomic_json(pair / "summary.json", result)
     return result
@@ -420,6 +503,7 @@ def report(pair):
 def launch(args):
     pair = Path(args.pair).resolve()
     manifest = check(pair)
+    spec = profile_settings(manifest.get("profile", FRAME_PROFILE))
     commands = ([train_command(pair, args.arm, args.python, assets_for(args))] if args.action == "train"
                 else export_commands(pair, args.arm, args.python))
     for cmd in commands:
@@ -431,12 +515,13 @@ def launch(args):
     destination = pair / ("runs" if args.action == "train" else "eval") / args.arm
     if destination.exists():
         raise FileExistsError(f"Refuse existing output: {destination}")
-    session = args.session or f"official_{args.action}_{args.arm}_s{SEED}"
+    prefix = "official_gan300" if manifest.get("profile") == GAN_PROFILE else "official"
+    session = args.session or f"{prefix}_{args.action}_{args.arm}_s{SEED}"
     if not re.fullmatch(r"[A-Za-z0-9_-]+", session):
         raise ValueError("Invalid tmux session name")
     if subprocess.run(["tmux", "has-session", "-t", session], capture_output=True).returncode == 0:
         raise FileExistsError(f"Existing tmux session: {session}")
-    argv = [args.python, "-m", "experiments.iclr.official_frame_chunk", args.action,
+    argv = [args.python, "-m", spec["entrypoint"], args.action,
             "--pair", str(pair), "--arm", args.arm, "--python", args.python, "--gpus", args.gpus, "--worker"]
     if args.action == "train":
         for key, value in assets_for(args).items():
@@ -449,14 +534,15 @@ def launch(args):
     print(f"tmux attach -t {session}; inspect training through step 10")
 
 
-def main():
+def main(profile=FRAME_PROFILE):
+    spec = profile_settings(profile)
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
     prep = sub.add_parser("prepare"); prep.add_argument("--official-root", required=True)
     for name in ("check", "report", "monitor", "train", "evaluate"):
         p = sub.add_parser(name)
         if name not in ("check", "report"):
-            p.add_argument("--arm", choices=ARMS, required=True)
+            p.add_argument("--arm", choices=spec["arms"], required=True)
         if name == "monitor":
             p.add_argument("--min-step", type=int, default=10)
         if name in ("train", "evaluate"):
@@ -475,8 +561,10 @@ def main():
     for p in sub.choices.values():
         p.add_argument("--pair", required=True)
     args = parser.parse_args()
+    if args.action != "prepare":
+        check(args.pair, required_profile=profile)
     if args.action == "prepare":
-        print(json.dumps(prepare(args.official_root, args.pair), indent=2))
+        print(json.dumps(prepare(args.official_root, args.pair, profile=profile), indent=2))
     elif args.action == "check":
         print(json.dumps(check(args.pair), indent=2))
     elif args.action == "report":
