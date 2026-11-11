@@ -1,5 +1,7 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
+**2026-11-11 新增独立任务：** [Original/Rectified 确定性4→2→1渐进蒸馏](../../docs/ICLR_CD_PROGRESSIVE_TASK.md)。先核验历史四步权重与视频；seed2026，每阶段300步、lr=2e-6，最终 raw/all1/original 944×1。此入口不自动追加下文旧任务；缺四步权重先报告恢复方案和额外600次更新成本。
+
 **当前总任务：** 执行 [frame/chunk、一步 CD、旧 seed=0 original 评测合并任务](../../docs/ICLR_CURRENT_EXPERIMENTS_TASK.md)：A 为 `frame_w18_s42` / `chunk_w18_s42` 各 200 步，B 为 seed=2026 的 Original/Local Rectified CD 各 300 步，C 为旧 `frame_roff_s0` / `chunk_roff_s0` 复用权重补 original 评测。仍为 **4 个正式训练 run、6 个新增终点评测条件**。A 用 EMA/main_ffe/Qwen，B 用 raw/all1/original 944×1，C 用 EMA/main_ffe/original 944×5。取消的公开配方独立 chunk 第三组继续取消；旧训练和旧 Qwen 评测不重跑。
 
 **当前一步实验更新：** 以[高噪声状态局部渐进拉直任务](../../docs/ICLR_CD_LOCAL_ALL1_TASK.md)为准，只评测 Original/Rectified 两个 all1 条件，首帧也一步；不运行四步生成或四步评测。下文旧四条件方案保留作历史记录，不是本次执行范围。

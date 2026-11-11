@@ -1,0 +1,15 @@
+{
+  "origin": "historical_four_step_cd",
+  "initial_checkpoint": "/ABSOLUTE/VERIFIED/HISTORICAL_INITIAL.pt",
+  "trajectory_manifest": "/ABSOLUTE/VERIFIED/shared_curvature_lmdb/curvature_dataset_manifest.json",
+  "original": {
+    "checkpoint": "/ABSOLUTE/VERIFIED/curved/checkpoint_model_000300/model.pt",
+    "sha256": "REPLACE_WITH_ACTUAL_FILE_SHA256",
+    "training_record": "/ABSOLUTE/VERIFIED/curved/run.intent.json"
+  },
+  "rectified": {
+    "checkpoint": "/ABSOLUTE/VERIFIED/rectified/checkpoint_model_000300/model.pt",
+    "sha256": "REPLACE_WITH_ACTUAL_FILE_SHA256",
+    "training_record": "/ABSOLUTE/VERIFIED/rectified/run.intent.json"
+  }
+}

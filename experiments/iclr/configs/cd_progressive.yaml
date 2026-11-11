@@ -1,0 +1,31 @@
+profile: original_rectified_progressive_v1
+seed: 2026
+updates_per_stage: 300
+batch_size: 1
+world_size: 8
+training_num_frames: 9
+num_frame_per_block: 1
+holdout_rows: 64
+lr: 2.0e-6
+beta1: 0.9
+beta2: 0.999
+weight_decay: 0.01
+max_grad_norm: 10.0
+mixed_precision: true
+gradient_checkpointing: true
+sharding_strategy: full
+generator_fsdp_wrap_strategy: transformer
+generator_fsdp_transformer_modules: [causal_wan_block]
+generator_fsdp_min_num_params: 1000000
+generator_cpu_offload: false
+generator_fsdp_reduce_dtype: float32
+generator_fsdp_buffer_dtype: float32
+text_encoder_fsdp_wrap_strategy: size
+text_encoder_fsdp_min_num_params: 1000000
+text_encoder_cpu_offload: false
+text_encoder_fsdp_reduce_dtype: float32
+text_encoder_fsdp_buffer_dtype: float32
+model_kwargs:
+  timestep_shift: 5.0
+  local_attn_size: 21
+  sink_size: 0
