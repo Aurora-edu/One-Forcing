@@ -1,5 +1,7 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
+**新增等时间任务（2026-11-14）：** [历史 seed0 Framewise/Chunkwise 等训练时间对照](../../docs/ICLR_SEED0_MATCHED_TIME_TASK.md)。同机8卡先复跑 frame200 测得时间预算，再让 chunk 从同一初始化训练到该时间；最终 EMA/main_ffe/Qwen 944×5。它是独立新增任务，不触发下文历史任务的重跑。
+
 **当前自主执行主线：** [Original/Rectified 一步生成与4→2→1渐进蒸馏](../../docs/ICLR_CD_PROGRESSIVE_TASK.md)，先读第0节最新授权、目标和当前失败状态。四步起点已报告恢复完成，但确定性采样视频异常；继续查已有legacy4、定位并自主修复，合格后接续蒸馏。首轮seed2026，每阶段300步、lr=2e-6，最终raw/all1/original944×1。恢复、诊断、修复和必要的配对重试均已授权，不停在等待用户确认；失败校验触发诊断循环。以下旧任务仅作历史追溯，不自动追加。
 
 **当前总任务：** 执行 [frame/chunk、一步 CD、旧 seed=0 original 评测合并任务](../../docs/ICLR_CURRENT_EXPERIMENTS_TASK.md)：A 为 `frame_w18_s42` / `chunk_w18_s42` 各 200 步，B 为 seed=2026 的 Original/Local Rectified CD 各 300 步，C 为旧 `frame_roff_s0` / `chunk_roff_s0` 复用权重补 original 评测。仍为 **4 个正式训练 run、6 个新增终点评测条件**。A 用 EMA/main_ffe/Qwen，B 用 raw/all1/original 944×1，C 用 EMA/main_ffe/original 944×5。取消的公开配方独立 chunk 第三组继续取消；旧训练和旧 Qwen 评测不重跑。

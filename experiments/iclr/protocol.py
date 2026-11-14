@@ -76,6 +76,10 @@ def resume_signature(config):
 def validate_config(config):
     c = config_dict(config)
     profile = c.get("iclr_profile")
+    if profile == "matched_time_seed0_v1":
+        from experiments.iclr.matched_time import validate_time_config
+        validate_time_config(config)
+        return
     if profile not in PROFILE_RUN_SPECS:
         raise ValueError(f"unknown ICLR profile: {profile!r}")
     matched_window = profile == WINDOW_PROFILE

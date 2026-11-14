@@ -30,6 +30,7 @@ def main():
             "effective_gradient_frames": effective_gradient_frames(config),
             "method": "framewise" if config.num_frame_per_block == 1 else "chunkwise",
             "max_steps": config.max_steps, "stop_condition": config.iclr_stop_condition,
+            "training_budget_seconds": config.get("iclr_budget_seconds"),
             "save_steps": list(config.iclr_save_steps), "resume": args.resume,
             "weight_source": config.iclr_eval_weight_source, "gpu_execution": False}, indent=2))
         return

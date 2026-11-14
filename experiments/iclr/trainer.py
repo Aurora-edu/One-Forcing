@@ -1,4 +1,4 @@
-"""ICLR-only trainer: strict raw init, fixed 200 iterations and full restarts.
+"""ICLR-only trainer: strict raw init, explicit budgets and full restarts.
 
 Legacy train.py never imports this module. Checkpoints support the same world
 size, FSDP topology, software and deterministic LMDB dataset only.
@@ -17,7 +17,7 @@ import torch.distributed as dist
 from experiments.iclr.protocol import (
     atomic_json, effective_gradient_frames, resume_signature, sha256_file, tensor_state_sha256, validate_config,
 )
-from experiments.iclr.state import RestartableStream, TrainingClock
+from experiments.iclr.state import RestartableStream, TrainingClock, TrainingTimeClock
 from trainer.one_forcing import Trainer, _move_optimizer_state, _normalize_state_dict_keys
 from utils.distributed import EMA_FSDP, fsdp_state_dict
 
@@ -94,8 +94,11 @@ class ICLRTrainer(Trainer):
             self.resume_dir, self.restart = read_complete_checkpoint(
                 config.resume_ckpt, config, int(os.environ["WORLD_SIZE"]))
             self.initialization = self.restart["initialization"]
-        self.clock = (TrainingClock.from_state_dict(self.restart["clock"]) if self.restart
-                      else TrainingClock(config.max_steps, tuple(config.iclr_save_steps)))
+        timed = config.iclr_stop_condition == "training_seconds"
+        clock_type = TrainingTimeClock if timed else TrainingClock
+        self.clock = (clock_type.from_state_dict(self.restart["clock"]) if self.restart else
+                      clock_type(config.max_steps, tuple(config.iclr_save_steps),
+                                 **({"budget_seconds": config.iclr_budget_seconds} if timed else {})))
         super().__init__(config)
         if self.world_size != int(config.iclr_expected_world_size):
             raise ValueError("world size differs from matched ICLR protocol")
@@ -315,10 +318,19 @@ class ICLRTrainer(Trainer):
             due = self.clock.due()
             if due:
                 self.clock.saved_steps.extend(due)
-                self.save(due, reason="step_cap" if self.clock.exhausted else "step")
+                reason = "step_cap" if self.clock.exhausted else "step"
+                if isinstance(self.clock, TrainingTimeClock) and self.clock.budget_reached:
+                    reason = "time_budget"
+                self.save(due, reason=reason)
         if self.is_main_process:
+            timed = isinstance(self.clock, TrainingTimeClock)
+            reached = self.clock.budget_reached if timed else self.clock.exhausted
             atomic_json(Path(self.output_path) / "training.done", {
                 **self.clock.state_dict(), "mode": self.config.iclr_mode,
-                "stop_condition": "fixed_steps", "step_budget_reached": self.clock.exhausted,
-                "formal_result": self.config.iclr_mode == "formal" and self.clock.exhausted
-                                 and self.step == self.config.iclr_reference_step})
+                "stop_condition": self.config.iclr_stop_condition,
+                "step_budget_reached": self.step >= self.config.max_steps,
+                **({"time_budget_reached": reached,
+                    "budget_overshoot_seconds": max(0., self.clock.training_seconds - self.clock.budget_seconds)}
+                   if timed else {}),
+                "formal_result": self.config.iclr_mode == "formal" and reached
+                                 and (timed or self.step == self.config.iclr_reference_step)})

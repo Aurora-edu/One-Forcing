@@ -52,6 +52,35 @@ class TrainingClock:
         return cls(**state)
 
 
+@dataclass
+class TrainingTimeClock(TrainingClock):
+    """First complete iteration reaching synchronized active training time.
+
+    Checkpoint I/O and logging/GC overhead are recorded separately. max_steps
+    is a safety cap, not a successful time-budget result.
+    """
+    budget_seconds: float = 1.0
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not math.isfinite(self.budget_seconds) or self.budget_seconds <= 0:
+            raise ValueError("budget_seconds must be finite and positive")
+
+    @property
+    def budget_reached(self):
+        return self.training_seconds >= self.budget_seconds
+
+    @property
+    def exhausted(self):
+        return self.budget_reached or super().exhausted
+
+    def due(self):
+        due = super().due()
+        if self.exhausted and self.step not in self.saved_steps and self.step not in due:
+            due.append(self.step)
+        return due
+
+
 class RestartableStream:
     """Deterministic epoch permutation, resumable at the next unconsumed batch.
 
