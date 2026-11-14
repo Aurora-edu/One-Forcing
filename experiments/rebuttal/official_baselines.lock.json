@@ -1,0 +1,28 @@
+{
+  "self_forcing": {
+    "label": "Self Forcing (official chunkwise four-step checkpoint)",
+    "repository": "https://github.com/guandeh17/Self-Forcing.git",
+    "commit": "33593df3e81fa3ec10239271dd2c100facac6de1",
+    "config": "configs/self_forcing_dmd.yaml",
+    "pipeline_sha256": "a06f5653f266dce154116f85d33cee3f2923e8531fbb15b4702b3751abdaab69",
+    "hf_repository": "gdhe17/Self-Forcing",
+    "hf_revision": "2f8b779212da279d212c22a509b66ad6552f350e",
+    "hf_filename": "checkpoints/self_forcing_dmd.pt",
+    "checkpoint_sha256": "a0413986d9734e02c09504e1520f5697ba6df731bb2f0f35577485e9cc8f56a3",
+    "weight_key": "generator_ema",
+    "weight_key_reason": "Official README CLI uses --use_ema for self_forcing_dmd.pt"
+  },
+  "causal_forcing": {
+    "label": "Causal-Forcing (official original chunkwise four-step checkpoint)",
+    "repository": "https://github.com/thu-ml/Causal-Forcing.git",
+    "commit": "eb8705b2f00b7c361193b25aa3aae9e7edc94667",
+    "config": "configs/causal_forcing_dmd_chunkwise.yaml",
+    "pipeline_sha256": "9feff55d8b8fe7177c2c437850a51f442ef33b3c7c1837cadfd03c04691a2733",
+    "hf_repository": "zhuhz22/Causal-Forcing",
+    "hf_revision": "2f8eb8bb6eeb1238da9d13e5420d342a74d634a6",
+    "hf_filename": "chunkwise/causal_forcing.pt",
+    "checkpoint_sha256": "cf75ee5cc6f4e2e336c59c973f5544655d8f0aa481761efe6de1b9cb2eb0cd9d",
+    "weight_key": "generator",
+    "weight_key_reason": "Official README CLI for original chunkwise model omits --use_ema"
+  }
+}
