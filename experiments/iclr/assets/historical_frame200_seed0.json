@@ -1,0 +1,100 @@
+{
+  "experiment_id": "frame_roff_s0",
+  "seed": 0,
+  "world_size": 8,
+  "source_commit": "1ee818ee8535052f43868c9eecc8e4d6c4732406",
+  "training": {
+    "checkpoint_seconds": 193.3026420227252,
+    "critic_updates": 200,
+    "formal_result": true,
+    "generator_updates": 40,
+    "max_steps": 200,
+    "mode": "formal",
+    "overhead_seconds": 1.4046046673320234,
+    "save_steps": [
+      0,
+      50,
+      100,
+      150,
+      200
+    ],
+    "saved_steps": [
+      0,
+      50,
+      100,
+      150,
+      200
+    ],
+    "step": 200,
+    "step_budget_reached": true,
+    "stop_condition": "fixed_steps",
+    "training_seconds": 4261.134528471157
+  },
+  "initialization": {
+    "critic_tensor_sha256": "3c2bbeaa484c148e8b6db0d14b2437221ac7a46ff90e12b38359d3b44d21c3d0",
+    "experiment_id": "frame_roff_s0",
+    "generator_checkpoint": "/data/data/cuijiaxing/oneforcing_iclr/assets/oneforcing_hf/checkpoints/framewise/causal_ode.pt",
+    "generator_checkpoint_sha256": "58bd2f6c3b757d6582541c4354eff2626ea0ba4cd1fcf48c729a3d24518379bf",
+    "generator_source_key": "generator",
+    "generator_tensor_sha256": "ce2772b027dd47cefc1afc9237046ca5fab7d908c9a1c22cddb5feb84e0e9911",
+    "initialization_seed": 0,
+    "ode_provenance": "UNVERIFIED: content identity does not establish ODE training provenance",
+    "strict_load": true,
+    "teacher_model_path": "/data/data/cuijiaxing/oneforcing_iclr/assets/wan_models/Wan2.1-T2V-14B",
+    "use_ema": false
+  },
+  "evaluation": {
+    "scores": {
+      "subject_consistency": 0.9603035507609858,
+      "background_consistency": 0.960384706009266,
+      "temporal_flickering": 0.994687119207507,
+      "motion_smoothness": 0.987158673841609,
+      "dynamic_degree": 0.5472222222222223,
+      "aesthetic_quality": 0.6619116143513751,
+      "imaging_quality": 0.6952862994580029,
+      "object_class": 0.9533227848101266,
+      "multiple_objects": 0.8251524390243903,
+      "human_action": 0.918,
+      "color": 0.8339522437627571,
+      "spatial_relationship": 0.8449275801290403,
+      "scene": 0.5597383720930232,
+      "temporal_style": 0.2462242784500122,
+      "appearance_style": 0.21415868055555545,
+      "overall_consistency": 0.26059302383212635,
+      "quality_score": 0.8432098442924669,
+      "semantic_score": 0.7997577020508424,
+      "total_score": 0.8345194158441419
+    },
+    "protocol": {
+      "aggregation_unit": "training seed",
+      "conditioning": "pinned_qwen_rewrite",
+      "evaluation_scope": "final_checkpoint_only",
+      "historical_score_reproduction_guaranteed": false,
+      "limitation": "endpoint-only two-seed repeatability check; no quality learning curves; equal iterations do not imply matched wall-clock compute; no statistical significance claim",
+      "primary_comparison": "framewise minus chunkwise within seeds 0 and 1 at step 200; summarize paired differences",
+      "samples_per_prompt": 5,
+      "schedule": "main_ffe",
+      "step": 200,
+      "summary": "identical final training step 200; actual elapsed costs reported separately",
+      "training_seeds": {
+        "chunkwise": [
+          0,
+          1
+        ],
+        "framewise": [
+          0,
+          1
+        ]
+      },
+      "uncertainty": "n=2 training seeds per method; sample SD of scores and of paired differences, not generation samples",
+      "weight_source": "generator_ema"
+    }
+  },
+  "source_files": {
+    "/data/fengjiaqi/One-Forcing/iclr_round3_results_lsq1lr18/extracted/seed0_metrics/seed0_frame_chunk_train_metrics/runs/frame_roff_s0/training.done": "7a786479baba0c0c698a1d759ee8504c9a1adb148ab3de4f23ec113811b3b1c9",
+    "/data/fengjiaqi/One-Forcing/iclr_round3_results_lsq1lr18/extracted/seed0_metrics/seed0_frame_chunk_train_metrics/runs/frame_roff_s0/initialization.json": "d23cf4f6a9449d3e0cdb70049ca99d502876934b52f489feef1fdfed20bf7c9f",
+    "/data/fengjiaqi/One-Forcing/iclr_round3_results_lsq1lr18/extracted/seed0_metrics/seed0_frame_chunk_train_metrics/runs/frame_roff_s0/source.json": "af6a0c7f5ecdb97f164e8c7a96adc4c9d8332970ef8cf1717d70817d4ce6c01f",
+    "/data/fengjiaqi/One-Forcing/iclr_results_review_eh394uwr/extracted/oneforcing_iclr_results_20261107_final/summary_step200/points.csv": "305a53ab2cf736711baacdcf884563f22feffb058f946c269a8e1df717fe4b7e",
+    "/data/fengjiaqi/One-Forcing/iclr_results_review_eh394uwr/extracted/oneforcing_iclr_results_20261107_final/summary_step200/protocol.json": "ab713ed46a5470956172b9e415d1d86b7490b504089b3707d07eb2b1af9c1e51"
+  }
+}

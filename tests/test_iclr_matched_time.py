@@ -1,5 +1,7 @@
 """Real CPU optimizer-loop tests; fixtures below are not measured GPU results."""
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -149,32 +151,38 @@ def fake_endpoint(output, arm, seconds, step, previous=None):
     return run, cp
 
 
-def test_budget_is_measured_and_frozen_before_evaluation(tmp_path):
+def test_historical_budget_needs_no_frame_training_or_checkpoint(tmp_path):
     output = tmp_path / "task"
     task.prepare(output, SimpleNamespace(**ASSETS))
-    assert not (output / "chunk.yaml").exists()
-    with pytest.raises(FileNotFoundError):
-        task.freeze_budget(output)
-    fake_endpoint(output, "frame", seconds=1234.5, step=200)
+    assert (output / "chunk.yaml").exists()
+    assert not (output / "frame.yaml").exists() and not (output / "runs/frame").exists()
     budget = task.freeze_budget(output)
-    assert budget["training_seconds"] == 1234.5  # NOT historical 4261.13
-    assert OmegaConf.load(output / "chunk.yaml").iclr_budget_seconds == 1234.5
+    target = 4261.134528471157
+    assert budget["training_seconds"] == target
+    assert budget["anchor_source"] == "historical_reused"
+    assert OmegaConf.load(output / "chunk.yaml").iclr_budget_seconds == target
     task.check(output)
     task.freeze_budget(output)  # identical reentry preserves the budget
-    fake_endpoint(output, "chunk", seconds=1238, step=267, previous=1230)
+    fake_endpoint(output, "chunk", seconds=target+2, step=267, previous=target-5)
     assert task.endpoint(output, "chunk")[2]["step"] == 267
     args = SimpleNamespace(gpus="0,1,2,3,4,5,6,7", python="PY", vbench_python="VB")
-    for arm, method in (("frame", "framewise"), ("chunk", "chunkwise")):
-        ea = task.eval_args(output, arm, args)
-        command = task.evaluation.command_for_condition(ea, "qwen")
-        assert "--use_ema" in command and "main_ffe" in command
-        assert command[command.index("--method") + 1] == method
-        assert command[command.index("--samples_per_prompt") + 1] == "5"
-        assert command[command.index("--checkpoint_path") + 1].endswith(
-            f"checkpoint_model_{200 if arm == 'frame' else 267:06d}/model.pt")
-    fake_endpoint(output, "chunk", seconds=1250, step=268, previous=1238)
+    ea = task.eval_args(output, "chunk", args)
+    command = task.evaluation.command_for_condition(ea, "qwen")
+    assert "--use_ema" in command and "main_ffe" in command
+    assert command[command.index("--method") + 1] == "chunkwise"
+    assert command[command.index("--samples_per_prompt") + 1] == "5"
+    assert command[command.index("--checkpoint_path") + 1].endswith("checkpoint_model_000267/model.pt")
+    with pytest.raises(ValueError, match="Only chunk"):
+        task.eval_args(output, "frame", args)
+    with pytest.raises(ValueError, match="Only chunk"):
+        task.train_arm(output, "frame", args)
+    fake_endpoint(output, "chunk", seconds=target+10, step=268, previous=target+2)
     with pytest.raises(ValueError, match="first complete"):
         task.endpoint(output, "chunk")
+    budget["training_seconds"] = 1234.5
+    task.atomic_json(output / "budget.json", budget)
+    with pytest.raises(ValueError, match="time budget changed"):
+        task.check(output)
 
 
 def test_partial_outputs_are_preserved_and_only_complete_states_resume(tmp_path):
@@ -220,33 +228,47 @@ def test_hardware_or_asset_receipt_cannot_silently_change(tmp_path):
         task.immutable_json(path, {"gpu": "B", "data": "X"})
 
 
-def test_report_uses_both_new_scores_and_labels_recovery(tmp_path, monkeypatch):
+def test_report_reuses_historical_frame_scores_and_only_scores_chunk(tmp_path, monkeypatch):
     output = tmp_path / "task"
     task.prepare(output, SimpleNamespace(**ASSETS))
-    fake_endpoint(output, "frame", 1000, 200)
-    task.freeze_budget(output)
-    fake_endpoint(output, "chunk", 1002, 251, previous=997)
+    target = task.historical_budget()["training_seconds"]
+    fake_endpoint(output, "chunk", target+2, 251, previous=target-5)
     task.atomic_json(output / "hardware.json", {"cpu_fixture_only": True})
-    for arm in task.ARMS:
+    for arm in task.ACTIVE_ARMS:
         run, _, done = task.endpoint(output, arm)
         done.update(generator_updates=(done["step"] + 4) // 5, critic_updates=done["step"],
                     checkpoint_seconds=20., overhead_seconds=1.)
         task.atomic_json(run / "training.done", done)
-        task.atomic_json(run / "initialization.json", {"generator_checkpoint_sha256": task.INIT_SHA256,
-            "generator_tensor_sha256": "same_init", "critic_tensor_sha256": "same_critic", "initialization_seed": 0})
+        task.atomic_json(run / "initialization.json", task.frame_anchor()["initialization"])
         task.atomic_json(run / "launch.json", {"resume": "", "process_wall_seconds": 1050.})
     args = SimpleNamespace(gpus="0,1,2,3,4,5,6,7", python="PY", vbench_python="VB")
     # Existing prompt_ablation tests separately audit real export/scoring metadata.
     def synthetic_scores(ea):
-        total = .78 if ea.method == "framewise" else .79
-        return {"scores": [{"total_score": total, "quality_score": .8, "semantic_score": .7}]}
+        assert ea.method == "chunkwise"
+        return {"scores": [{"total_score": .79, "quality_score": .8, "semantic_score": .7}]}
     monkeypatch.setattr(task.evaluation, "summarize", synthetic_scores)
     task.report(output, args)
     result = task.read(output / "matched_time_results.json")
-    assert result["uninterrupted_pair"]
-    assert result["frame_minus_chunk"]["total_score"] == -1  # do not substitute historical 83.45
+    assert result["uninterrupted_chunk"]
+    assert result["rows"][0]["source"] == "historical_reused"
+    assert result["rows"][0]["total_score"] == pytest.approx(83.45194158441419)
+    assert result["rows"][0]["quality_score"] == pytest.approx(84.32098442924669)
+    assert result["rows"][0]["semantic_score"] == pytest.approx(79.97577020508425)
+    assert result["frame_minus_chunk"]["total_score"] == pytest.approx(83.45194158441419 - 79)
     assert [r["step"] for r in result["rows"]] == [200, 251]
     task.atomic_json(output / "runs/chunk/attempt_000/launch.json", {"resume": "/fixture/restart", "process_wall_seconds": 1050.})
     task.report(output, args)
     result = task.read(output / "matched_time_results.json")
-    assert not result["uninterrupted_pair"] and result["recovery_note"]
+    assert not result["uninterrupted_chunk"] and result["recovery_note"]
+
+
+def test_cli_defaults_to_chunk_and_rejects_frame_or_both(tmp_path):
+    output = tmp_path / "task"
+    task.prepare(output, SimpleNamespace(**ASSETS))
+    command = [sys.executable, "-m", "experiments.iclr.matched_time", "train", "--output", str(output)]
+    result = subprocess.run(command, capture_output=True, text=True, check=True)
+    assert "Train ONLY chunk" in result.stdout and "4261.134528471157" in result.stdout
+    assert not (output / "runs").exists()
+    for arm in ("frame", "both"):
+        result = subprocess.run(command + ["--arm", arm], capture_output=True, text=True)
+        assert result.returncode == 2 and "invalid choice" in result.stderr

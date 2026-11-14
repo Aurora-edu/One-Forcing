@@ -1,8 +1,7 @@
-"""Seed-0 historical frame/chunk recipe, measured equal training-time endpoints.
+"""Reuse historical seed0 frame200; train/evaluate only equal-time chunkwise.
 
-Rerun frame200 on the allocated machine, then train chunk from the SAME raw
-initialization until its synchronized active training time reaches frame200's.
-Only the two terminal EMA checkpoints receive full Qwen 944x5 main_ffe VBench.
+The existing frame200 clock fixes the budget at 4261.134528471157 seconds.
+Reuse its scores; only chunk gets a new EMA/Qwen944x5/main_ffe endpoint export.
 """
 from __future__ import annotations
 
@@ -34,6 +33,9 @@ HISTORICAL_COMMIT = "1ee818ee8535052f43868c9eecc8e4d6c4732406"
 INIT_SHA256 = "58bd2f6c3b757d6582541c4354eff2626ea0ba4cd1fcf48c729a3d24518379bf"
 CAP = 1000
 ARMS = ("frame", "chunk")
+ACTIVE_ARMS = ("chunk",)
+SCOPE = "historical_frame200_chunk_only"
+FRAME_ANCHOR = REPO / "experiments/iclr/assets/historical_frame200_seed0.json"
 PROTECTED_DIRS = ("model", "pipeline", "trainer", "utils", "wan")
 CONTROL_FILES = (
     "experiments/iclr/matched_time.py", "experiments/iclr/trainer.py",
@@ -41,12 +43,13 @@ CONTROL_FILES = (
     "experiments/iclr/configs/base.yaml", "experiments/iclr/configs/main_reference.yaml",
     "experiments/iclr/prompt_ablation.py", "experiments/rebuttal/run_sharded_inference.py",
     "experiments/rebuttal/run_vbench_condition.sh", "scripts/infer.sh", "inference.py",
+    "experiments/iclr/assets/historical_frame200_seed0.json",
 )
 HISTORICAL = {
     "source_commit": HISTORICAL_COMMIT,
     "frame": {"step": 200, "training_seconds": 4261.134528471157, "total_percent": 83.4519},
     "chunk": {"step": 200, "training_seconds": 3268.672115027439, "total_percent": 81.6281},
-    "note": "Historical reference only; new scores and budget must come from the new paired runs.",
+    "note": "Reuse historical frame200 score and time. Train and evaluate only a new equal-time chunk endpoint.",
 }
 
 
@@ -56,6 +59,28 @@ def read(path):
 
 def git(*args):
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
+
+
+def frame_anchor():
+    anchor = read(FRAME_ANCHOR)
+    if (anchor["source_commit"] != HISTORICAL_COMMIT or anchor["seed"] != 0
+            or anchor["training"]["step"] != 200
+            or anchor["training"]["training_seconds"] != HISTORICAL["frame"]["training_seconds"]
+            or anchor["initialization"]["generator_checkpoint_sha256"] != INIT_SHA256):
+        raise ValueError("Historical frame200 anchor changed")
+    return anchor
+
+
+def historical_budget():
+    anchor = frame_anchor()
+    return {"training_seconds": anchor["training"]["training_seconds"],
+            "anchor_experiment": anchor["experiment_id"], "anchor_step": 200,
+            "anchor_source": "historical_reused", "anchor_metadata_sha256": sha256_file(FRAME_ANCHOR)}
+
+
+def require_chunk(arm):
+    if arm not in ACTIVE_ARMS:
+        raise ValueError("Only chunk is authorized; reuse historical frame200 without retraining or reevaluation")
 
 
 def source_fingerprint():
@@ -116,34 +141,39 @@ def prepare(output, args):
         raise FileExistsError(f"Use a fresh directory; preserve earlier results: {output}")
     source = source_fingerprint()
     assets = {key: str(Path(getattr(args, key)).resolve()) for key in ("generator", "teacher", "data")}
-    config = config_for(assets, "frame")
+    budget = historical_budget()
+    config = config_for(assets, "chunk", budget["training_seconds"])
     output.mkdir(parents=True)
-    OmegaConf.save(config, output / "frame.yaml")
+    OmegaConf.save(config, output / "chunk.yaml")
+    immutable_json(output / "budget.json", budget)
+    immutable_json(output / "historical_frame200.json", frame_anchor())
     evaluation.prepare_inputs(output / "inputs", 5)
     manifests = output / "inputs/manifests"
     records = [json.loads(line) for line in (manifests / "qwen.jsonl").read_text().splitlines()]
     chosen = [r for r in records if r["sample_index"] == 0 and r["prompt_index"] in (0, 30, 100, 200, 300, 500, 700, 900)]
     (manifests / "preview.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in chosen))
-    atomic_json(output / "task.json", {"profile": PROFILE, "assets": assets,
+    atomic_json(output / "task.json", {"profile": PROFILE, "scope": SCOPE, "active_arms": list(ACTIVE_ARMS), "assets": assets,
         "source": source, "historical_reference": HISTORICAL,
         "inputs": {p.name: sha256_file(p) for p in manifests.iterdir()},
         "time_definition": "sum of CUDA-synchronized per-iteration durations, MAX across 8 ranks; excludes checkpoint I/O, logging/GC and initialization",
-        "budget_rule": "new frame200 training_seconds, frozen before any VBench evaluation"})
+        "budget_rule": "reuse historical frame200 training_seconds=4261.134528471157; no frame training/evaluation"})
 
 
 def check(output):
     task = read(output / "task.json")
-    if task["profile"] != PROFILE or task["source"] != source_fingerprint():
+    if (task["profile"] != PROFILE or task.get("scope") != SCOPE
+            or task.get("active_arms") != list(ACTIVE_ARMS) or task["source"] != source_fingerprint()):
         raise ValueError("Task source or identity changed; use a fresh task for a changed recipe")
-    if config_dict(load_config(str(output / "frame.yaml"))) != config_dict(config_for(task["assets"], "frame")):
-        raise ValueError("frame200 config changed")
+    if read(output / "historical_frame200.json") != frame_anchor():
+        raise ValueError("Historical frame200 evidence changed")
+    if read(output / "budget.json") != historical_budget():
+        raise ValueError("Historical frame200 time budget changed")
     manifests = output / "inputs/manifests"
     if any(sha256_file(manifests / p) != h for p, h in task["inputs"].items()):
         raise ValueError("Pinned evaluation inputs changed")
-    if (output / "chunk.yaml").exists():
-        budget = read(output / "budget.json")["training_seconds"]
-        if config_dict(load_config(str(output / "chunk.yaml"))) != config_dict(config_for(task["assets"], "chunk", budget)):
-            raise ValueError("chunk time-budget config changed")
+    budget = historical_budget()["training_seconds"]
+    if config_dict(load_config(str(output / "chunk.yaml"))) != config_dict(config_for(task["assets"], "chunk", budget)):
+        raise ValueError("chunk time-budget config changed")
     return task
 
 
@@ -152,6 +182,7 @@ def attempts(output, arm):
 
 
 def endpoint(output, arm):
+    require_chunk(arm)
     runs = attempts(output, arm)
     if not runs or not (runs[-1] / "training.done").is_file():
         raise FileNotFoundError(f"{arm}: terminal training.done is not available")
@@ -184,20 +215,8 @@ def endpoint(output, arm):
 
 
 def freeze_budget(output):
-    run, checkpoint, done = endpoint(output, "frame")
-    budget = {"training_seconds": done["training_seconds"], "anchor_checkpoint": str(checkpoint),
-              "anchor_run": str(run), "anchor_step": 200,
-              "anchor_clock_sha256": sha256_file(run / "training.done")}
-    if not math.isfinite(budget["training_seconds"]) or budget["training_seconds"] <= 0:
-        raise ValueError("Invalid frame training time")
-    immutable_json(output / "budget.json", budget)
-    cfg = config_for(check(output)["assets"], "chunk", budget["training_seconds"])
-    path = output / "chunk.yaml"
-    if path.exists() and config_dict(load_config(str(path))) != config_dict(cfg):
-        raise ValueError("chunk config already exists with a different budget")
-    if not path.exists():
-        OmegaConf.save(cfg, path)
-    return budget
+    check(output)
+    return read(output / "budget.json")
 
 
 def hardware(gpus):
@@ -233,6 +252,7 @@ def next_attempt(output, arm):
 
 
 def train_arm(output, arm, args):
+    require_chunk(arm)
     task = check(output)
     if arm == "chunk":
         freeze_budget(output)
@@ -268,8 +288,6 @@ def train_arm(output, arm, args):
         if run.exists():
             atomic_json(run / "launch.json", receipt)
     endpoint(output, arm)
-    if arm == "frame":
-        print(json.dumps(freeze_budget(output), indent=2), flush=True)
 
 
 def monitor(output, arm):
@@ -321,10 +339,20 @@ def preview_command(output, arm, args):
 
 def report(output, args):
     check(output)
-    rows = []
-    inits = []
+    anchor = frame_anchor()
+    clock = anchor["training"]
+    rows = [{"method": "frame", "source": "historical_reused", "seed": 0, "step": 200,
+             "generator_updates": clock["generator_updates"], "critic_updates": clock["critic_updates"],
+             "training_minutes": clock["training_seconds"] / 60,
+             "checkpoint_minutes": clock["checkpoint_seconds"] / 60,
+             "overhead_minutes": clock["overhead_seconds"] / 60,
+             "process_minutes_including_recovery": None, "attempts": None, "budget_overshoot_seconds": 0.,
+             **{k: 100 * anchor["evaluation"]["scores"][k]
+                for k in ("total_score", "quality_score", "semantic_score")}}]
+    inits = [{k: anchor["initialization"][k]
+              for k in ("generator_tensor_sha256", "critic_tensor_sha256", "initialization_seed")}]
     uninterrupted = True
-    for arm in ARMS:
+    for arm in ACTIVE_ARMS:
         run, _, done = endpoint(output, arm)
         init = read(run / "initialization.json")
         if init["generator_checkpoint_sha256"] != INIT_SHA256:
@@ -336,7 +364,7 @@ def report(output, args):
         uninterrupted = uninterrupted and len(arm_attempts) == len(receipts) == 1 and not receipts[0]["resume"]
         process_minutes = (sum(r["process_wall_seconds"] for r in receipts) / 60
                            if len(receipts) == len(arm_attempts) else None)
-        rows.append({"method": arm, "seed": 0, "step": done["step"],
+        rows.append({"method": arm, "source": "new_training", "seed": 0, "step": done["step"],
                      "generator_updates": done["generator_updates"], "critic_updates": done["critic_updates"],
                      "training_minutes": done["training_seconds"] / 60,
                      "checkpoint_minutes": done["checkpoint_seconds"] / 60,
@@ -353,9 +381,9 @@ def report(output, args):
               "historical_reference": HISTORICAL,
               "protocol": "seed0; R1/R2 off; EMA; main_ffe; pinned Qwen 944x5; endpoint only",
               "time_definition": read(output / "task.json")["time_definition"],
-              "uninterrupted_pair": uninterrupted,
+              "scope": SCOPE, "uninterrupted_chunk": uninterrupted,
               "recovery_note": (None if uninterrupted else
-                  "Checkpoint clocks exclude discarded work after an interruption. Preserve these results, but rerun the pair in a fresh task for a strict matched-time comparison.")}
+                  "Checkpoint clocks exclude discarded work after an interruption. Preserve these results and retry only chunk in a fresh task if needed; always reuse historical frame200.")}
     atomic_json(output / "matched_time_results.json", result)
     evaluation.write_csv(output / "matched_time_results.csv", rows)
     print(json.dumps(result, indent=2))
@@ -365,7 +393,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("action", choices=("prepare", "check", "train", "monitor", "preview", "evaluate", "report"))
     p.add_argument("--output", type=Path, required=True)
-    p.add_argument("--arm", choices=(*ARMS, "both"), default="both")
+    p.add_argument("--arm", choices=ACTIVE_ARMS, default="chunk")
     for name in ("generator", "teacher", "data"):
         p.add_argument(f"--{name}")
     p.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
@@ -380,25 +408,25 @@ def main():
         if any(not getattr(args, key) for key in ("generator", "teacher", "data")):
             p.error("prepare requires --generator, --teacher and --data from the historical seed0 run")
         prepare(output, args)
-        print(f"Prepared {output}. Chunk's budget will be measured from the new frame200 run.")
+        print(f"Prepared {output}. Chunk only, historical frame200 budget = {historical_budget()['training_seconds']} seconds.")
         return
     check(output)
     if args.action == "check":
-        print("PASS: historical recipe; seed0; frame200 then measured equal-time chunk; EMA Qwen944x5 main_ffe")
+        print("PASS: historical frame200 reused; only chunk trains for 4261.134528471157s; seed0/EMA/Qwen944x5/main_ffe")
         return
     if args.action == "report":
         report(output, args)
         return
-    selected = ARMS if args.arm == "both" else (args.arm,)
+    selected = (args.arm,)
     if args.action == "monitor":
         print(json.dumps([monitor(output, arm) for arm in selected], indent=2))
         return
     parse_gpus(args.gpus)
     if args.action == "train":
         if not args.execute and not args.worker:
-            print("DRY RUN: no GPU queries or jobs launched. Same machine/GPU allocation for both arms.")
-            print("frame: 200 iterations from historical initialization; chunk: same initialization until measured frame time.")
-            print("Historical timing for planning only: frame 71.02 min, chunk200 54.48 min; do not hardcode ~261 steps.")
+            print("DRY RUN: no GPU queries or jobs launched. Reuse historical frame200 score 83.4519.")
+            print("Train ONLY chunk from historical initialization until training_seconds >= 4261.134528471157.")
+            print("Budget: 71.0189 minutes. Do not retrain/reevaluate frame or hardcode ~261 steps.")
             return
         if not args.worker:
             require_idle(parse_gpus(args.gpus))

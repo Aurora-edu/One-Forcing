@@ -1,6 +1,6 @@
 # ICLR 2027：受控稳定性与轨迹实验
 
-**新增等时间任务（2026-11-14）：** [历史 seed0 Framewise/Chunkwise 等训练时间对照](../../docs/ICLR_SEED0_MATCHED_TIME_TASK.md)。同机8卡先复跑 frame200 测得时间预算，再让 chunk 从同一初始化训练到该时间；最终 EMA/main_ffe/Qwen 944×5。它是独立新增任务，不触发下文历史任务的重跑。
+**新增等时间任务（2026-11-14，按用户更正）：** [复用历史frame200，仅补跑等时间chunk](../../docs/ICLR_SEED0_MATCHED_TIME_TASK.md)。直接复用frame的83.4519分及4261.1345秒训练时间，只训练chunk至该预算，最终 EMA/main_ffe/Qwen 944×5。不重训、不重新计时、不重新评测frame，也不触发下文历史任务的重跑。
 
 **当前自主执行主线：** [Original/Rectified 一步生成与4→2→1渐进蒸馏](../../docs/ICLR_CD_PROGRESSIVE_TASK.md)，先读第0节最新授权、目标和当前失败状态。四步起点已报告恢复完成，但确定性采样视频异常；继续查已有legacy4、定位并自主修复，合格后接续蒸馏。首轮seed2026，每阶段300步、lr=2e-6，最终raw/all1/original944×1。恢复、诊断、修复和必要的配对重试均已授权，不停在等待用户确认；失败校验触发诊断循环。以下旧任务仅作历史追溯，不自动追加。
 
