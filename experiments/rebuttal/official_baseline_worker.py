@@ -77,6 +77,7 @@ def main():
         ),
         "warped_first_steps": (
             pipeline.denoising_step_list.tolist() if model == "self_forcing"
+            else pipeline.first_frame_denoising_step_list.tolist() if model == "one_forcing"
             else pipeline.denoising_step_list_first_chunk.tolist()
         ),
     }

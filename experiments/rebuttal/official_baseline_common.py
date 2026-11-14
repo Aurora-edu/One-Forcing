@@ -60,7 +60,7 @@ def adapted_pipeline_source(source, model):
     The SF adapter deliberately leaves its official four-step __init__ intact,
     so the first block's warped timestep tensor is exactly the official tensor.
     """
-    if model == "causal_forcing":
+    if model in ("causal_forcing", "one_forcing"):
         return source
     if model != "self_forcing":
         raise ValueError(model)
@@ -84,6 +84,15 @@ def adapted_pipeline_source(source, model):
 def load_config(source_root, model, schedule):
     from omegaconf import OmegaConf
     source_root = Path(source_root)
+    if model == "one_forcing":
+        config = OmegaConf.load(source_root / "config.yaml")
+        if config.num_frame_per_block != 1 or list(config.denoising_step_list) != [1000]:
+            raise ValueError("Unexpected official One-Forcing framewise config")
+        config.seed = LOCK[model]["training_seed"]
+        config.first_frame_denoising_step_list = FOUR_STEPS
+        if schedule == "all4":
+            config.denoising_step_list = FOUR_STEPS
+        return config
     config = OmegaConf.merge(
         OmegaConf.load(source_root / "configs/default_config.yaml"),
         OmegaConf.load(source_root / LOCK[model]["config"]),

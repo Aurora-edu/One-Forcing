@@ -1,6 +1,8 @@
-# 官方 Self Forcing / Causal-Forcing：FFE + Qwen 统一重评
+# 官方 Self Forcing / Causal-Forcing 重评 + One-Forcing seed2027 训练200步
 
-这是一个独立的**评测任务，不训练**。在 `Aurora-edu/One-Forcing` 的 `ICLR` 分支执行，入口为 `experiments/rebuttal/run_official_baselines.py`。读完本文后直接准备、验证和评测；路径、依赖、下载和资源调度问题自行解决，保留诊断日志。不要停止其它 session 的进程，也不要改动已有实验结果。
+本批任务有三组：Self Forcing / Causal-Forcing 使用官方公开权重直接评测；**另新增一次 One-Forcing 官方代码训练，seed=2027、200 iterations、framewise、raw，再按相同 Qwen 944×5 协议评测**。新增组按 [One-Forcing 执行说明](ICLR_ONE_FORCING200_S2027_TASK.md)完成，不额外训练 chunkwise 或 DMD-only。
+
+在 `Aurora-edu/One-Forcing` 的 `ICLR` 分支执行，公共评测入口为 `experiments/rebuttal/run_official_baselines.py`。路径、依赖、下载和资源调度问题自行解决，保留诊断日志。不要停止其它 session 的进程，也不要改动已有实验结果。如果两个基线已在运行，让其继续在原 checkout 中完成；用新的 checkout 准备新增组，复用已完成的视频和评分，不为新增组重跑基线。
 
 ## 1. 要评什么
 
@@ -13,7 +15,9 @@
 
 这两个文件是**原生四步公开 checkpoint**。本任务测它们在**一步采样 + FFE** 下的表现，不宣称它们是重新训练的一步模型，也不直接宣称复现了旧 Table 2 的 77.18 / 78.39。结果应标为“official released checkpoint, reevaluated with one-step sampling + FFE”。两组采用同一生成/评分协议，参数分支遵循各自官方发布建议并如实注明。
 
-共同协议：
+下面先说明两个公开基线。新增 One-Forcing 采用相同 prompts、生成 seeds、视频规格和评分协议，但保留其原生 framewise / 首1帧 FFE（而两个基线是 chunkwise / 首3帧 FFE）。共同的 FFE 策略是首 native block 四步、后续一步，不把两种首块长度写成完全相同。
+
+两个公开基线的协议：
 
 - 保留各自官方模型实现和原生 **3 latent frames/block**。首个完整 block 用 `[1000,750,500,250]`，后续 block 用 `[1000]`；由官方 scheduler 做 timestep warp。这里 FFE 加强的是首 **3** 个 latent frame，不能写成只加强第 1 个 latent frame。
 - 21 latent frames，解码为 81 帧，832×480，16 FPS，BF16；保持官方 KV cache、重加噪、context_noise=0、VAE、attention 行为。
@@ -108,7 +112,14 @@ OFFICIAL_BASELINE_SOURCE_ROOT="$BASE_EVAL_ROOT/source" \
 
 ## 5. 交付
 
-完成后交付 `<ROOT>/summary.csv`、`summary.json` 及以下原始文件：
+新增 One-Forcing 完成后，执行以下命令将三组放入同一份汇总（不会重新生成或评分）：
+
+```bash
+"$BASE_EVAL_PY" experiments/rebuttal/run_official_baselines.py summarize \
+  --work-root "$BASE_EVAL_ROOT" --model all
+```
+
+`--model both` 仍只选择 Self Forcing / Causal-Forcing，`--model one_forcing` 只选择新增组，`--model all` 选择三组。三组各4720个正式视频，总计14160个。完成后交付 `<ROOT>/summary.csv`、`summary.json` 及以下原始文件：
 
 - `official_sources.json`、固定 prompts/rewrites/manifest、运行命令、仓库 commit。
 - 每组 `intent.json`、`audit/`、`logs/`、`metadata/`、`export.done.json`、`score_provenance.json`。

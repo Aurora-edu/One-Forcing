@@ -75,6 +75,10 @@ class NativeLoopTests(unittest.TestCase):
         import torch
         cls.torch = torch
         cls.sources = Path(os.environ["OFFICIAL_BASELINE_SOURCE_ROOT"])
+        cls.models = [model for model in LOCK if (cls.sources / model).is_dir()]
+        if not cls.models:
+            raise unittest.SkipTest("No prepared official sources found")
+        print("Native CPU loop coverage:", ", ".join(cls.models))
 
     def pipeline(self, model, schedule, adapted=True):
         torch = self.torch
@@ -135,29 +139,31 @@ class NativeLoopTests(unittest.TestCase):
         self.torch.manual_seed(42)
         return pipeline.inference(self.torch.randn(1, 21, 1, 2, 2), ["fixed rewrite"])
 
-    def test_ffe_is_four_calls_then_six_single_calls_and_seven_cache_refreshes(self):
-        for model in LOCK:
+    def test_ffe_uses_four_calls_for_first_native_block_and_one_for_each_later_block(self):
+        for model in self.models:
             with self.subTest(model=model):
                 pipeline = self.pipeline(model, "ffe")
                 first = self.run_pipeline(pipeline)
                 calls = pipeline.generator.calls[:]
                 steps = [call for call in calls if call[2] != 0]
                 refreshes = [call for call in calls if call[2] == 0]
+                block = 1 if model == "one_forcing" else 3
+                starts = list(range(0, 21, block))
                 self.assertEqual([c[2] for c in steps[:4]], [1000, 750, 500, 250])
-                self.assertEqual([c[0] for c in steps], [0] * 4 + [3, 6, 9, 12, 15, 18])
-                self.assertEqual([c[0] for c in refreshes], [0, 3, 6, 9, 12, 15, 18])
-                self.assertEqual({c[1] for c in calls}, {3})
+                self.assertEqual([c[0] for c in steps], [0] * 4 + starts[1:])
+                self.assertEqual([c[0] for c in refreshes], starts)
+                self.assertEqual({c[1] for c in calls}, {block})
                 # A subsequent sample resets its schedule/caches, independent of worker history.
                 self.assertTrue(self.torch.equal(first, self.run_pipeline(pipeline)))
 
     def test_all4_adapter_is_bitwise_identical_to_the_official_loop(self):
-        for model in LOCK:
+        for model in self.models:
             with self.subTest(model=model):
                 official = self.pipeline(model, "all4", adapted=False)
                 adapted = self.pipeline(model, "all4")
                 self.assertTrue(self.torch.equal(self.run_pipeline(official), self.run_pipeline(adapted)))
                 self.assertEqual(official.generator.calls, adapted.generator.calls)
-                self.assertEqual(sum(t != 0 for _, _, t in adapted.generator.calls), 28)
+                self.assertEqual(sum(t != 0 for _, _, t in adapted.generator.calls), 84 if model == "one_forcing" else 28)
 
     def test_strict_loading_rejects_a_partial_state(self):
         module = self.torch.nn.Linear(2, 2)

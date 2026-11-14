@@ -23,10 +23,33 @@ REPO = HERE.parents[1]
 
 
 def models(args):
-    return list(LOCK) if args.model == "both" else [args.model]
+    if args.model == "both":
+        return ["self_forcing", "causal_forcing"]
+    return ["self_forcing", "causal_forcing", "one_forcing"] if args.model == "all" else [args.model]
+
+
+def official_training():
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from experiments.iclr import official_frame_chunk
+    return official_frame_chunk
+
+
+def training_registration(root):
+    record = json.loads((root / "one_forcing_training.json").read_text())
+    pair = Path(record["pair"])
+    if sha256(pair / "pair.json") != record["manifest_sha256"]:
+        raise ValueError("Registered One-Forcing training manifest changed")
+    return pair, record
 
 
 def locations(root, model):
+    if model == "one_forcing":
+        pair, _ = training_registration(root)
+        manifest = json.loads((pair / "pair.json").read_text())
+        return {"source": Path(manifest["official_root"]),
+                "checkpoint": pair / "runs/one_forcing/checkpoint_model_000200/model.pt",
+                "runtime": root / "runtime" / model}
     return {
         "source": root / "source" / model,
         "checkpoint": root / "weights" / model / LOCK[model]["hf_filename"],
@@ -38,6 +61,12 @@ def prepare_sources(args):
     prepare(args.work_root / "inputs", 5)
     for model in models(args):
         spec = LOCK[model]
+        if model == "one_forcing":
+            task = official_training()
+            pair = args.one_forcing_run.resolve() if args.one_forcing_run else training_registration(args.work_root)[0]
+            task.check(pair, required_profile=task.ONE_PROFILE)
+            immutable_json(args.work_root / "one_forcing_training.json",
+                           {"pair": str(pair), "manifest_sha256": sha256(pair / "pair.json")})
         paths = locations(args.work_root, model)
         if not paths["source"].exists():
             paths["source"].parent.mkdir(parents=True, exist_ok=True)
@@ -56,18 +85,29 @@ def prepare_sources(args):
                     raise ValueError(f"Existing Wan asset link points elsewhere: {link}")
             else:
                 link.symlink_to(wan_path, target_is_directory=True)
-        if args.download_weights:
+        if args.download_weights and model != "one_forcing":
             from huggingface_hub import hf_hub_download
             hf_hub_download(repo_id=spec["hf_repository"], filename=spec["hf_filename"],
                             revision=spec["hf_revision"], local_dir=args.work_root / "weights" / model)
         if paths["checkpoint"].exists():
-            verify_checkpoint(paths["checkpoint"], model)
+            verify_checkpoint(paths["checkpoint"], model, args.work_root)
         print(f"Prepared {model}: {paths['source']}; checkpoint: {paths['checkpoint']}")
-    json_write(args.work_root / "official_sources.json", {model: LOCK[model] for model in models(args)})
+    source_record = args.work_root / "official_sources.json"
+    previous = json.loads(source_record.read_text()) if source_record.exists() else {}
+    previous.update({model: LOCK[model] for model in models(args)})
+    json_write(source_record, previous)
 
 
-def verify_checkpoint(path, model):
-    if sha256(path) != LOCK[model]["checkpoint_sha256"]:
+def verify_checkpoint(path, model, work_root=None):
+    if model == "one_forcing":
+        task = official_training()
+        pair, _ = training_registration(work_root)
+        manifest = task.check(pair, required_profile=task.ONE_PROFILE)
+        completed = task.audit_training(pair, "one_forcing", manifest)
+        expected = completed["checkpoint_sha256"]
+    else:
+        expected = LOCK[model]["checkpoint_sha256"]
+    if sha256(path) != expected:
         raise ValueError(f"Checkpoint is not the pinned official release: {path}")
 
 
@@ -98,18 +138,33 @@ def build_intent(args, model):
     for record in rows:
         validate_output_name(record["output_name"])
     code = [Path(__file__).resolve(), HERE / "official_baseline_common.py", HERE / "official_baseline_worker.py", LOCK_PATH]
-    return {
+    training = None
+    if model == "one_forcing":
+        task = official_training()
+        pair, registered = training_registration(args.work_root)
+        manifest = task.check(pair, required_profile=task.ONE_PROFILE)
+        receipt = pair / "runs/one_forcing/training.done"
+        done = json.loads(receipt.read_text()) if receipt.exists() else {}
+        training = {**registered, "seed": manifest["seed"], "iterations": manifest["steps"],
+                    "completion_sha256": sha256(receipt) if receipt.exists() else None,
+                    "checkpoint_sha256": done.get("checkpoint_sha256")}
+    intent = {
         "schema_version": 1, "model": model, "source_root": str(paths["source"]),
         "runtime_root": str(paths["runtime"]), "checkpoint": str(paths["checkpoint"]),
         "official_release": LOCK[model], "weight_key": LOCK[model]["weight_key"],
         "schedule": args.schedule, "phase": args.phase,
         "protocol": protocol, "records": rows,
         "latent_frames": 21, "pixel_frames": 81, "fps": 16, "resolution": [832, 480],
-        "frames_per_block": 3, "first_block_steps": [1000, 750, 500, 250],
+        "frames_per_block": 1 if model == "one_forcing" else 3,
+        "first_block_steps": [1000, 750, 500, 250],
         "later_block_steps": [1000, 750, 500, 250] if args.schedule == "all4" else [1000],
         "evaluation_code_sha256": {str(p): sha256(p) for p in code},
         "native_checkpoint_training_schedule": "four-step; this is a sampling evaluation, no retraining",
     }
+    if training is not None:
+        intent["training"] = training
+        intent["native_checkpoint_training_schedule"] = "fresh one-step framewise DMD+GAN, official seed2027/200 iterations"
+    return intent
 
 
 def audit_export(root):
@@ -135,7 +190,7 @@ def infer(args):
             print(f"{model}: {len(intent['records'])} videos; {len(ids)} shards; no GPU launched")
             continue
         paths = locations(args.work_root, model)
-        verify_checkpoint(paths["checkpoint"], model)
+        verify_checkpoint(paths["checkpoint"], model, args.work_root)
         if not (paths["runtime"] / "wan_models/Wan2.1-T2V-1.3B").is_dir():
             raise FileNotFoundError("Run prepare --wan-path /actual/Wan2.1-T2V-1.3B first")
         require_idle(ids)
@@ -209,7 +264,7 @@ def summarize(args):
     rows = []
     for model in models(args):
         root = args.work_root / "results" / model / "ffe/full"
-        audit_export(root)
+        intent = audit_export(root)
         result = root / "vbench" / f"{model}_eval_results.json"
         scores = load_vbench_results(result)
         totals = official_totals(scores)
@@ -218,8 +273,11 @@ def summarize(args):
         rows.append({"model": model, "weight_key": LOCK[model]["weight_key"],
                      "total": 100 * totals["total_score"], "quality": 100 * totals["quality_score"],
                      "semantic": 100 * totals["semantic_score"], "prompts": "Qwen 944x5",
-                     "sampling": "first 3-latent block 4 steps; subsequent blocks 1 step",
-                     "checkpoint_sha256": LOCK[model]["checkpoint_sha256"], "result_path": str(result)})
+                     "sampling": f"first {intent['frames_per_block']}-latent block 4 steps; subsequent blocks 1 step",
+                     "training_seed": intent.get("training", {}).get("seed"),
+                     "training_iterations": intent.get("training", {}).get("iterations"),
+                     "checkpoint_sha256": (intent["training"]["checkpoint_sha256"] if model == "one_forcing"
+                                           else LOCK[model]["checkpoint_sha256"]), "result_path": str(result)})
     json_write(args.work_root / "summary.json", rows)
     with (args.work_root / "summary.csv").open("w") as f:
         writer = csv.DictWriter(f, fieldnames=list(rows[0]))
@@ -232,7 +290,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["prepare", "infer", "score", "summarize"])
     parser.add_argument("--work-root", type=Path, required=True)
-    parser.add_argument("--model", choices=["both", *LOCK], default="both")
+    parser.add_argument("--model", choices=["both", "all", *LOCK], default="both")
+    parser.add_argument("--one-forcing-run", type=Path, help="Prepared official_one_forcing200 --pair directory")
     parser.add_argument("--wan-path", type=Path)
     parser.add_argument("--download-weights", action="store_true")
     parser.add_argument("--phase", choices=["smoke", "full"], default="smoke")

@@ -28,18 +28,23 @@ SEED = 42
 SAMPLES = 5
 FRAME_PROFILE = "official_frame_chunk_s42_200"
 GAN_PROFILE = "official_gan_s42_300"
+ONE_PROFILE = "official_one_forcing_s2027_200"
 
 
 def profile_settings(profile=FRAME_PROFILE):
     if profile == FRAME_PROFILE:
-        return {"arms": ARMS, "steps": 200, "differences": ["num_frame_per_block"],
+        return {"arms": ARMS, "seed": SEED, "steps": 200, "differences": ["num_frame_per_block"],
                 "entrypoint": "experiments.iclr.official_frame_chunk",
                 "comparison": "frame_minus_chunk_percentage_points"}
     if profile == GAN_PROFILE:
-        return {"arms": {"dmd_gan": 1, "dmd_only": 1}, "steps": 300,
+        return {"arms": {"dmd_gan": 1, "dmd_only": 1}, "seed": SEED, "steps": 300,
                 "differences": ["gan_g_weight", "gan_d_weight"],
                 "entrypoint": "experiments.iclr.official_gan_ablation",
                 "comparison": "gan_minus_dmd_percentage_points"}
+    if profile == ONE_PROFILE:
+        return {"arms": {"one_forcing": 1}, "seed": 2027, "steps": 200,
+                "differences": [], "entrypoint": "experiments.iclr.official_one_forcing200",
+                "comparison": None}
     raise ValueError(f"Unknown official experiment profile: {profile}")
 
 
@@ -50,7 +55,7 @@ def pair_settings(pair):
 
 def training_config(original, arm, profile):
     spec = profile_settings(profile)
-    cfg = dict(original, seed=SEED, num_frame_per_block=spec["arms"][arm])
+    cfg = dict(original, seed=spec["seed"], num_frame_per_block=spec["arms"][arm])
     if profile == GAN_PROFILE:
         cfg.update(max_steps=300)
         if arm == "dmd_only":
@@ -60,7 +65,7 @@ def training_config(original, arm, profile):
 
 def protocol_fields(profile):
     spec = profile_settings(profile)
-    return {"official_commit": OFFICIAL, "seed": SEED, "steps": spec["steps"],
+    return {"official_commit": OFFICIAL, "seed": spec["seed"], "steps": spec["steps"],
             "only_arm_difference": spec["differences"], "weight_source": "generator",
             "samples_per_prompt": SAMPLES,
             "effective_gradient_frames": {arm: 17 if block == 1 else 21 for arm, block in spec["arms"].items()},
@@ -238,7 +243,7 @@ def audit_gan_losses(pair, arm):
     if arm == "dmd_only":
         if any(value != 0 for value in g + d):
             raise ValueError("DMD-only has nonzero GAN loss")
-    elif arm == "dmd_gan":
+    elif arm in ("dmd_gan", "one_forcing"):
         if not any(value > 0 for value in g) or not any(value > 0 for value in d):
             raise ValueError("DMD+GAN has no observed adversarial signal")
     else:
@@ -336,7 +341,7 @@ def worker_train(args):
     atomic_json(run / "launch.json", {"official_commit": OFFICIAL, "working_directory": str(root),
         "command": command, "config_sha256": manifest["training_configs"][args.arm],
         "launcher_commit": git(REPO, "rev-parse", "HEAD"), "launcher_sha256": sha256_file(__file__),
-        "assets": assets, "gpus": args.gpus, "seed": SEED, "weight_source": "generator",
+        "assets": assets, "gpus": args.gpus, "seed": manifest["seed"], "weight_source": "generator",
         "environment": environment})
     started = time.monotonic()
     with (run / "train.log").open("x") as log:
@@ -347,7 +352,7 @@ def worker_train(args):
                 log.write(line); log.flush()
                 if "'step': 10," in line and "'critic_loss':" in line:
                     atomic_json(run / "step10_health.json", monitor(pair, args.arm, 10))
-                    if manifest.get("profile") == GAN_PROFILE:
+                    if manifest.get("profile") in (GAN_PROFILE, ONE_PROFILE):
                         atomic_json(run / "step10_objectives.json", audit_gan_losses(pair, args.arm))
                     print(f"{args.arm}: step 10 finite; inspect {run / 'train.log'}", flush=True)
             code = process.wait()
@@ -360,11 +365,11 @@ def worker_train(args):
     if health["last_step"] != steps or not (run / "step10_health.json").is_file():
         raise ValueError(f"Expected exactly {steps} steps and a step-10 health record")
     check(pair)
-    if manifest.get("profile") == GAN_PROFILE:
+    if manifest.get("profile") in (GAN_PROFILE, ONE_PROFILE):
         atomic_json(run / "objective_audit.json", audit_gan_losses(pair, args.arm))
     audit = raw_checkpoint(run / f"checkpoint_model_{steps:06d}/model.pt", assets["generator"], expected_step=steps)
     atomic_json(run / "training.done", {**health, **audit, "elapsed_seconds": time.monotonic() - started,
-                                        "official_commit": OFFICIAL, "seed": SEED})
+                                        "official_commit": OFFICIAL, "seed": manifest["seed"]})
 
 
 def audit_training(pair, arm, manifest):
@@ -378,7 +383,7 @@ def audit_training(pair, arm, manifest):
         raise ValueError("Executed training command or paired assets changed")
     if launch_record["environment"] != json.loads((pair / "training_environment.json").read_text()):
         raise ValueError("Training runtime differs between arms")
-    for key, value in {"official_commit": OFFICIAL, "seed": SEED, "weight_source": "generator",
+    for key, value in {"official_commit": OFFICIAL, "seed": manifest["seed"], "weight_source": "generator",
                        "working_directory": manifest["official_root"],
                        "config_sha256": manifest["training_configs"][arm]}.items():
         if launch_record.get(key) != value:
@@ -386,12 +391,12 @@ def audit_training(pair, arm, manifest):
     health = monitor(pair, arm, steps)
     done = json.loads((run / "training.done").read_text())
     required = {**health, "last_step": steps, "generator_updates": steps // 5, "critic_updates": steps,
-                "official_commit": OFFICIAL, "seed": SEED, "weight_source": "generator", "use_ema": False}
+                "official_commit": OFFICIAL, "seed": manifest["seed"], "weight_source": "generator", "use_ema": False}
     if any(done.get(k) != v for k, v in required.items()) or health["last_step"] != steps:
         raise ValueError("Training completion does not match the official pair")
     if not (run / "step10_health.json").is_file():
         raise ValueError("Missing step-10 health record")
-    if manifest.get("profile") == GAN_PROFILE:
+    if manifest.get("profile") in (GAN_PROFILE, ONE_PROFILE):
         objectives = audit_gan_losses(pair, arm)
         if json.loads((run / "objective_audit.json").read_text()) != objectives:
             raise ValueError("GAN objective audit differs from actual logs")
@@ -516,7 +521,7 @@ def launch(args):
     if destination.exists():
         raise FileExistsError(f"Refuse existing output: {destination}")
     prefix = "official_gan300" if manifest.get("profile") == GAN_PROFILE else "official"
-    session = args.session or f"{prefix}_{args.action}_{args.arm}_s{SEED}"
+    session = args.session or f"{prefix}_{args.action}_{args.arm}_s{manifest['seed']}"
     if not re.fullmatch(r"[A-Za-z0-9_-]+", session):
         raise ValueError("Invalid tmux session name")
     if subprocess.run(["tmux", "has-session", "-t", session], capture_output=True).returncode == 0:
@@ -539,7 +544,8 @@ def main(profile=FRAME_PROFILE):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
     prep = sub.add_parser("prepare"); prep.add_argument("--official-root", required=True)
-    for name in ("check", "report", "monitor", "train", "evaluate"):
+    actions = ("check", "monitor", "train") if profile == ONE_PROFILE else ("check", "report", "monitor", "train", "evaluate")
+    for name in actions:
         p = sub.add_parser(name)
         if name not in ("check", "report"):
             p.add_argument("--arm", choices=spec["arms"], required=True)

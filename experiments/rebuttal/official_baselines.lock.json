@@ -12,6 +12,17 @@
     "weight_key": "generator_ema",
     "weight_key_reason": "Official README CLI uses --use_ema for self_forcing_dmd.pt"
   },
+  "one_forcing": {
+    "label": "One-Forcing (fresh official-code framewise training, seed2027, 200 iterations)",
+    "repository": "https://github.com/Aurora-edu/One-Forcing.git",
+    "commit": "c9a2350e8740531562011fc9618e1a928d911ae0",
+    "config": "config.yaml",
+    "pipeline_sha256": "7065c50e4219193f4210a90ef9dbfa04325ea4bd2e82bb3ef64184c66afe86d5",
+    "weight_key": "generator",
+    "weight_key_reason": "Fresh official-code run evaluated with raw generator, without EMA export changes",
+    "training_seed": 2027,
+    "training_iterations": 200
+  },
   "causal_forcing": {
     "label": "Causal-Forcing (official original chunkwise four-step checkpoint)",
     "repository": "https://github.com/thu-ml/Causal-Forcing.git",
